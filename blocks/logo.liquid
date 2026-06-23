@@ -17,7 +17,7 @@
         widths: '240, 352, 832, 1200, 1600, 1920, 2560, 3840',
         height: image.height,
         class: 'logo-block__image',
-        alt: shop.name,
+        alt: 'MERIDIAN',
         sizes: '(min-width: 750px) calc(var(--logo-width)), 100vw'
     -}}
   {% endcapture %}
@@ -35,7 +35,7 @@
       {% if image %}
         --logo-width: {{ image.width | times: 1.00 | divided_by: image.height | times: block_settings.pixel_height }}px;
       {% else %}
-        --logo-width: {{ shop.name.size | times: 0.65 }}em;
+        --logo-width: {{ 8 | times: 0.65 }}em;
         --logo-height: {{ block_settings.pixel_height }}px;
       {% endif %}
     {% endif %}
@@ -48,7 +48,7 @@
         {% if image %}
           --logo-width-mobile: {{ image.width | times: 1.00 | divided_by: image.height | times: block_settings.pixel_height_mobile }}px;
           {% else %}
-            --logo-width-mobile: {{ shop.name.size | times: 0.65 }}em;
+            --logo-width-mobile: {{ 8 | times: 0.65 }}em;
             --logo-height-mobile: {{ block_settings.pixel_height_mobile }}px;
         {% endif %}
       {% endif %}
@@ -62,7 +62,7 @@
       {{ logo_image }}
     </div>
   {% else %}
-    {% render 'jumbo-text', text: shop.name %}
+    {% render 'jumbo-text', text: 'MERIDIAN' %}
   {% endif %}
 </div>
 
