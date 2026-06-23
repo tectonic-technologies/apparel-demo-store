@@ -20,12 +20,12 @@
     "type_font_h1": "heading",
     "type_size_h1": "56",
     "type_line_height_h1": "display-tight",
-    "type_letter_spacing_h1": "heading-normal",
-    "type_case_h1": "none",
+    "type_letter_spacing_h1": "0.04em",
+    "type_case_h1": "uppercase",
     "type_font_h2": "heading",
     "type_size_h2": "48",
     "type_line_height_h2": "display-tight",
-    "type_letter_spacing_h2": "heading-normal",
+    "type_letter_spacing_h2": "0.03em",
     "type_case_h2": "none",
     "type_font_h3": "heading",
     "type_size_h3": "32",
@@ -79,11 +79,11 @@
     "palette_input_border": "{{ settings.color_palette.color3 }}",
     "palette_variant_border": "{{ settings.color_palette.color3 }}",
     "color_palette": {
-      "background": "#ffffff",
-      "foreground": "#000000",
-      "color1": "#333333",
-      "color2": "#EEF1EA",
-      "color3": "#DFDFDF"
+      "background": "#F4F1EA",
+      "foreground": "#1C1B19",
+      "color1": "#2B2A27",
+      "color2": "#E7E2D6",
+      "color3": "#CFC8B8"
     }
   },
   "presets": {
