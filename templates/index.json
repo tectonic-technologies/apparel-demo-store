@@ -219,7 +219,7 @@
       "type": "custom-liquid",
       "settings": {
         "custom_liquid": "<div class=\"mrd-ed\"><div class=\"mrd-ed__in\"><p class=\"mrd-ed__k\">Made to be worn</p><div class=\"mrd-ed__h\">We start with the fabric and stop when it feels right. No logos, no noise , just pieces that get better the more you reach for them.</div><a class=\"mrd-ed__a\" href=\"/collections/all\">Shop the edit</a></div></div><style>.mrd-ed{box-sizing:border-box;}.mrd-ed__in{max-width:880px;margin:0 auto;padding:84px 28px;text-align:center;color:#1c1b19;}.mrd-ed__k{margin:0 0 16px;font-size:.72rem;letter-spacing:.26em;text-transform:uppercase;opacity:.7;}.mrd-ed__h{margin:0 0 26px;font-weight:400;font-size:clamp(1.15rem,2.2vw,1.7rem);line-height:1.5;text-align:center;overflow-wrap:break-word;}.mrd-ed__a{display:inline-block;padding:12px 30px;background:#1c1b19;color:#fff;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;text-decoration:none;}.mrd-ed__a:hover{opacity:.85;}</style>",
-        "section_width": "full-width",
+        "section_width": "page-width",
         "background_color": "#E7E2D6",
         "padding-block-start": 0,
         "padding-block-end": 0
@@ -425,7 +425,7 @@
       "type": "custom-liquid",
       "settings": {
         "custom_liquid": "<div class=\"mrd-strip\"><span>Complimentary shipping over Rs. 5,000</span><span>30-day easy returns</span><span>Considered, not complicated</span></div><style>.mrd-strip{box-sizing:border-box;display:flex;justify-content:center;gap:54px;flex-wrap:wrap;padding:26px 24px;border-top:1px solid #DFD9CC;border-bottom:1px solid #DFD9CC;background:#F4F1EA;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:#3a3833;}@media(max-width:749px){.mrd-strip{gap:18px;font-size:.62rem;}}</style>",
-        "section_width": "full-width",
+        "section_width": "page-width",
         "background_color": "#F4F1EA",
         "padding-block-start": 0,
         "padding-block-end": 0
