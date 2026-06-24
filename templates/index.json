@@ -424,7 +424,7 @@
     "mrd_strip": {
       "type": "custom-liquid",
       "settings": {
-        "custom_liquid": "<div class=\"mrd-strip\"><span>Complimentary shipping over Rs. 5,000</span><span>30-day easy returns</span><span>Considered, not complicated</span></div><style>.mrd-strip{box-sizing:border-box;display:flex;justify-content:center;gap:54px;flex-wrap:wrap;padding:26px 24px;border-top:1px solid #DFD9CC;border-bottom:1px solid #DFD9CC;background:#F4F1EA;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:#3a3833;}@media(max-width:749px){.mrd-strip{gap:18px;font-size:.62rem;}}</style>",
+        "custom_liquid": "<div class=\"mrd-strip\"><span>Complimentary shipping over $150</span><span>30-day easy returns</span><span>Considered, not complicated</span></div><style>.mrd-strip{box-sizing:border-box;display:flex;justify-content:center;gap:54px;flex-wrap:wrap;padding:26px 24px;border-top:1px solid #DFD9CC;border-bottom:1px solid #DFD9CC;background:#F4F1EA;font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:#3a3833;}@media(max-width:749px){.mrd-strip{gap:18px;font-size:.62rem;}}</style>",
         "section_width": "page-width",
         "background_color": "#F4F1EA",
         "padding-block-start": 0,
