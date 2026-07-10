@@ -439,11 +439,16 @@
     "sai_section_v2dbks8d": {
       "type": "sai-section-v2dbks8d",
       "settings": {}
+    },
+    "sai_section_kqkrqtcj": {
+      "type": "sai-section-kqkrqtcj",
+      "settings": {}
     }
   },
   "order": [
     "sai_section_v2dbks8d",
     "main",
+    "sai_section_kqkrqtcj",
     "product_recommendations_qggXJq"
   ]
 }
