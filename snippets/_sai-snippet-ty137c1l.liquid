@@ -1,0 +1,1714 @@
+{%- comment -%}
+  Product Gallery V3 — spotlight with horizontal thumbnail strip gallery for PDP pages.
+
+  Reads media from product metafields (spectrum.media_assets +
+  spectrum.media_slots) per the Media Liquid Metafields contract.
+
+  Desktop: large spotlight on top, horizontal thumbnail strip below
+  with chevron navigation.
+  Mobile: full-width spotlight with left/right chevrons, carousel dots below.
+  Lightbox: spotlight + thumbnail strip + prev/next nav + zoom controls.
+{%- endcomment -%}
+
+{% stylesheet %}
+/* ── Product Gallery V3 ── */
+
+.sai-ty137c1l {
+  display: block;
+  width: 100%;
+  position: relative;
+}
+
+/* ── Select model CTA ── */
+
+.sai-ty137c1l__select-model {
+  position: absolute;
+  bottom: var(--sai-size-3);
+  right: var(--sai-size-3);
+  z-index: 2;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 10%, transparent);
+  border-radius: 999px;
+  background: var(--sai-color-bg, #fff);
+  color: var(--sai-color-fg, #000);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  font-family: var(--sai-font-body, inherit);
+  font-size: 0.8125rem;
+  font-weight: var(--sai-font-body-weight-bold, 600);
+  line-height: 1;
+  white-space: nowrap;
+  transition: background var(--sai-duration-2, 150ms) var(--sai-ease-out-1, ease-out);
+}
+
+.sai-ty137c1l__select-model[data-has-filters] {
+  display: flex;
+}
+
+.sai-ty137c1l__select-model:hover {
+  opacity: 0.8;
+}
+
+/* ── Video play/pause overlay ── */
+
+.sai-ty137c1l__video-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: var(--sai-color-surface-overlay, color-mix(in srgb, var(--sai-color-fg) 40%, transparent));
+  color: var(--sai-color-bg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: opacity var(--sai-duration-2, 150ms) var(--sai-ease-out-1, ease-out),
+    background var(--sai-duration-2, 150ms) var(--sai-ease-out-1, ease-out);
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.sai-ty137c1l__video-play[data-visible] {
+  opacity: 1;
+}
+
+.sai-ty137c1l__spotlight-wrap:hover .sai-ty137c1l__video-play,
+.sai-ty137c1l__mobile-spotlight-wrap:hover .sai-ty137c1l__video-play,
+.sai-ty137c1l__lightbox-main:hover .sai-ty137c1l__video-play {
+  opacity: 0.8;
+}
+
+.sai-ty137c1l__video-play:hover {
+  opacity: 1 !important;
+  background: var(--sai-color-surface-overlay, color-mix(in srgb, var(--sai-color-fg) 55%, transparent));
+}
+
+@media (hover: none) {
+  .sai-ty137c1l__video-play {
+    opacity: 0.7;
+  }
+}
+
+/* ── Video mute button ── */
+
+.sai-ty137c1l__video-mute {
+  position: absolute;
+  bottom: var(--sai-size-3);
+  left: var(--sai-size-3);
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--sai-color-surface-overlay, color-mix(in srgb, var(--sai-color-fg) 40%, transparent));
+  color: var(--sai-color-bg);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: opacity var(--sai-duration-2, 150ms) var(--sai-ease-out-1, ease-out),
+    background var(--sai-duration-2, 150ms) var(--sai-ease-out-1, ease-out);
+}
+
+.sai-ty137c1l__video-mute[data-visible] {
+  display: flex;
+}
+
+.sai-ty137c1l__video-mute:hover {
+  background: var(--sai-color-surface-overlay, color-mix(in srgb, var(--sai-color-fg) 55%, transparent));
+}
+
+@media (hover: none) {
+  .sai-ty137c1l__video-mute[data-visible] {
+    display: flex;
+  }
+}
+
+:has(> .sai-ty137c1l__zoom-trigger:not([style*="display: none"])) > .sai-ty137c1l__video-mute {
+  bottom: calc(var(--sai-size-3) + 44px);
+}
+
+/* ── Filter dialog ── */
+
+.sai-ty137c1l__filter-dialog {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  z-index: 9999;
+  display: none;
+}
+
+.sai-ty137c1l__filter-dialog[open] {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sai-ty137c1l__filter-dialog::backdrop {
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 40%, transparent);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+/* ── Filter panel ── */
+
+.sai-ty137c1l__filter-panel {
+  background: var(--sai-color-bg, #fff);
+  color: var(--sai-color-fg, #000);
+  border-radius: 12px 12px 0 0;
+  padding: 0;
+  width: 100%;
+  max-height: 60vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 -4px 24px color-mix(in srgb, var(--sai-color-fg, #000) 12%, transparent);
+}
+
+@media (min-width: 768px) {
+  .sai-ty137c1l__filter-dialog[open] {
+    align-items: center;
+  }
+
+  .sai-ty137c1l__filter-panel {
+    border-radius: 12px;
+    min-width: 360px;
+    max-width: 440px;
+    max-height: 70vh;
+    box-shadow: 0 8px 32px color-mix(in srgb, var(--sai-color-fg, #000) 15%, transparent);
+  }
+}
+
+.sai-ty137c1l__filter-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 8%, transparent);
+  flex-shrink: 0;
+}
+
+.sai-ty137c1l__filter-panel-title {
+  font-family: var(--sai-font-heading, inherit);
+  font-size: 1.125rem;
+  font-weight: var(--sai-font-heading-weight, 600);
+  color: var(--sai-color-fg, #000);
+  margin: 0;
+}
+
+.sai-ty137c1l__filter-panel-clear {
+  border: none;
+  background: none;
+  color: var(--sai-color-fg, #000);
+  font-family: var(--sai-font-body, inherit);
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold, 600);
+  cursor: pointer;
+  opacity: 0.6;
+  padding: 4px 0;
+  text-decoration: underline;
+}
+
+.sai-ty137c1l__filter-panel-clear:hover {
+  opacity: 1;
+}
+
+.sai-ty137c1l__filter-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.sai-ty137c1l__filter-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 8%, transparent);
+  flex-shrink: 0;
+}
+
+.sai-ty137c1l__filter-panel-cancel,
+.sai-ty137c1l__filter-panel-apply {
+  padding: 8px 20px;
+  border-radius: var(--sai-radius-md, 8px);
+  font-family: var(--sai-font-body, inherit);
+  font-size: 0.875rem;
+  font-weight: var(--sai-font-body-weight-bold, 600);
+  cursor: pointer;
+}
+
+.sai-ty137c1l__filter-panel-cancel {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 15%, transparent);
+  color: var(--sai-color-fg, #000);
+}
+
+.sai-ty137c1l__filter-panel-cancel:hover {
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 5%, transparent);
+}
+
+.sai-ty137c1l__filter-panel-apply {
+  background: var(--sai-color-fg, #000);
+  border: none;
+  color: var(--sai-color-bg, #fff);
+}
+
+.sai-ty137c1l__filter-panel-apply:hover {
+  opacity: 0.9;
+}
+
+/* ── Filters inside panel ── */
+
+.sai-ty137c1l__filters {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 0;
+}
+
+/* ── Filter tabs ── */
+
+.sai-ty137c1l__filter-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 8%, transparent);
+  padding: 0 20px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sai-ty137c1l__filter-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.sai-ty137c1l__filter-tab {
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--sai-color-fg, #000);
+  font-family: var(--sai-font-body, inherit);
+  font-size: 0.875rem;
+  font-weight: var(--sai-font-body-weight-bold, 600);
+  cursor: pointer;
+  opacity: 0.5;
+  border-bottom: 2px solid transparent;
+  text-transform: capitalize;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sai-ty137c1l__filter-tab--active {
+  opacity: 1;
+  border-bottom-color: var(--sai-color-fg, #000);
+}
+
+.sai-ty137c1l__filter-tab-check {
+  font-size: 0.75rem;
+}
+
+/* ── Filter content (per tab) ── */
+
+.sai-ty137c1l__filter-content {
+  display: none;
+  padding: 16px 20px;
+}
+
+.sai-ty137c1l__filter-content--active {
+  display: block;
+}
+
+/* ── Image/swatch grid ── */
+
+.sai-ty137c1l__filter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (min-width: 768px) {
+  .sai-ty137c1l__filter-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.sai-ty137c1l__filter-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 10%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 3%, transparent);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.sai-ty137c1l__filter-card:hover {
+  border-color: color-mix(in srgb, var(--sai-color-fg, #000) 25%, transparent);
+}
+
+.sai-ty137c1l__filter-card--active {
+  border-color: var(--sai-color-primary, #2563eb);
+  background: color-mix(in srgb, var(--sai-color-primary, #2563eb) 8%, transparent);
+}
+
+.sai-ty137c1l__filter-card-image {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.sai-ty137c1l__filter-card-swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 10%, transparent);
+}
+
+.sai-ty137c1l__filter-card-label {
+  font-size: 0.8125rem;
+  font-family: var(--sai-font-body, inherit);
+  color: var(--sai-color-fg, #000);
+  text-transform: capitalize;
+  text-align: center;
+}
+
+/* ── Text/null pill chips ── */
+
+.sai-ty137c1l__filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sai-ty137c1l__filter-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 15%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sai-color-fg, #000);
+  font-size: 0.875rem;
+  font-family: var(--sai-font-body, inherit);
+  cursor: pointer;
+  text-transform: capitalize;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.sai-ty137c1l__filter-pill:hover {
+  border-color: color-mix(in srgb, var(--sai-color-fg, #000) 35%, transparent);
+}
+
+.sai-ty137c1l__filter-pill--active {
+  background: var(--sai-color-fg, #000);
+  color: var(--sai-color-bg, #fff);
+  border-color: var(--sai-color-fg, #000);
+}
+
+@media (min-width: 768px) {
+  .sai-ty137c1l__filter-panel-header {
+    padding: 20px 24px;
+  }
+
+  .sai-ty137c1l__filter-panel-title {
+    font-size: 1.25rem;
+  }
+
+  .sai-ty137c1l__filter-panel-clear {
+    font-size: 0.9375rem;
+  }
+
+  .sai-ty137c1l__filter-panel-footer {
+    padding: 20px 24px;
+  }
+
+  .sai-ty137c1l__filter-panel-cancel,
+  .sai-ty137c1l__filter-panel-apply {
+    font-size: 1rem;
+    padding: 12px 20px;
+  }
+}
+
+/* ── Desktop layout ── */
+
+.sai-ty137c1l__desktop {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .sai-ty137c1l__desktop {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* ── Thumbnail strip (desktop — horizontal) ── */
+
+.sai-ty137c1l__thumbs {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 12px 0;
+}
+
+.sai-ty137c1l__thumbs::-webkit-scrollbar {
+  display: none;
+}
+
+.sai-ty137c1l__thumb {
+  flex-shrink: 0;
+  width: 64px;
+  height: auto;
+  aspect-ratio: var(--sai-ty137c1l-thumbnail-aspect, 1 / 1);
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: var(--sai-color-bg);
+  cursor: pointer;
+  overflow: hidden;
+  position: relative;
+  transition: border-color var(--sai-duration-2) var(--sai-ease-out-1);
+}
+
+.sai-ty137c1l__thumb:hover {
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.sai-ty137c1l__thumb--active {
+  border-color: var(--sai-ty137c1l-active-thumb-border, var(--sai-color-fg, #000));
+}
+
+.sai-ty137c1l__thumb-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: var(--sai-ty137c1l-thumb-fit, cover);
+}
+
+.sai-ty137c1l__thumb-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  color: #fff;
+  pointer-events: none;
+}
+
+/* ── Spotlight (shared desktop + mobile) ── */
+
+.sai-ty137c1l__spotlight-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--sai-ty137c1l-img-radius, 0px);
+  background: var(--sai-color-bg);
+  cursor: pointer;
+}
+
+.sai-ty137c1l__spotlight {
+  width: 100%;
+  aspect-ratio: var(--sai-ty137c1l-spotlight-aspect, 1 / 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.sai-ty137c1l__spotlight-media {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: var(--sai-ty137c1l-spotlight-fit, contain);
+}
+
+/* Natural-height mode: drop the ratio constraint so each image's own aspect
+   drives the container height. `height: 100%` on the media would resolve to
+   zero against an auto-height container, so the media switches to natural
+   height and contain (nothing to crop into). */
+sai-ty137c1l[data-spotlight-aspect="auto"] .sai-ty137c1l__spotlight,
+sai-ty137c1l[data-spotlight-aspect="auto"] .sai-ty137c1l__mobile-slide {
+  aspect-ratio: auto;
+  height: auto;
+}
+
+sai-ty137c1l[data-spotlight-aspect="auto"] .sai-ty137c1l__spotlight-media {
+  height: auto;
+  max-height: none;
+  object-fit: contain;
+}
+
+/* ── Fade transition ── */
+
+.sai-ty137c1l--fade .sai-ty137c1l__spotlight-media {
+  animation: sai-ty137c1l-fade-in var(--sai-duration-3) var(--sai-ease-out-1);
+}
+
+/* ── Navigation chevrons ── */
+
+.sai-ty137c1l__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--sai-color-surface-overlay, color-mix(in srgb, var(--sai-color-fg) 40%, transparent));
+  color: var(--sai-color-bg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--sai-shadow-2);
+  transition: background var(--sai-duration-2) var(--sai-ease-out-1), opacity var(--sai-duration-2)
+    var(--sai-ease-out-1);
+  opacity: 0;
+}
+
+.sai-ty137c1l__spotlight-wrap:hover .sai-ty137c1l__nav,
+.sai-ty137c1l__mobile-spotlight-wrap:hover .sai-ty137c1l__nav,
+.sai-ty137c1l__mobile-spotlight-wrap .sai-ty137c1l__nav {
+  opacity: 1;
+}
+
+@media (min-width: 768px) {
+  .sai-ty137c1l__spotlight-wrap:not(:hover) .sai-ty137c1l__nav {
+    opacity: 0;
+  }
+}
+
+.sai-ty137c1l__nav:hover {
+  background: var(--sai-color-surface-overlay, color-mix(in srgb, var(--sai-color-fg) 55%, transparent));
+}
+
+.sai-ty137c1l__nav--prev {
+  left: var(--sai-size-3);
+}
+
+.sai-ty137c1l__nav--next {
+  right: var(--sai-size-3);
+}
+
+/* ── Mobile layout ── */
+
+.sai-ty137c1l__mobile {
+  display: block;
+}
+
+.sai-ty137c1l__mobile-spotlight-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--sai-ty137c1l-img-radius, 0px);
+  background: var(--sai-color-bg);
+  touch-action: pan-y pinch-zoom;
+}
+
+.sai-ty137c1l__mobile-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.sai-ty137c1l__mobile-track::-webkit-scrollbar {
+  display: none;
+}
+
+.sai-ty137c1l__mobile-slide {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+  aspect-ratio: var(--sai-ty137c1l-spotlight-aspect, 1 / 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .sai-ty137c1l__mobile {
+    display: none;
+  }
+}
+
+/* ── Zoom trigger (magnification glass) ── */
+
+.sai-ty137c1l__zoom-trigger {
+  position: absolute;
+  bottom: var(--sai-size-3);
+  left: var(--sai-size-3);
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--sai-color-fg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--sai-duration-2) var(--sai-ease-out-1);
+}
+
+.sai-ty137c1l__zoom-trigger:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+/* ── Mobile thumbnail strip (alternative to dots; mobile_nav = thumbnails) ──
+   Lives inside .sai-ty137c1l__mobile, which is display:none ≥768px, so the
+   strip is mobile-only without its own breakpoint. Thumbs reuse .__thumb
+   (fixed size + flex-shrink:0), so only the horizontal scroll container is new. */
+
+.sai-ty137c1l__mobile-thumbs {
+  display: flex;
+  flex-direction: row;
+  gap: var(--sai-size-2);
+  padding: var(--sai-size-3);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sai-ty137c1l__mobile-thumbs::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Carousel dots ── */
+
+.sai-ty137c1l__dots {
+  display: flex;
+  justify-content: center;
+  gap: var(--sai-size-2);
+  padding: var(--sai-size-3) 0;
+}
+
+.sai-ty137c1l__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: background var(--sai-duration-2) var(--sai-ease-out-1), transform
+    var(--sai-duration-2) var(--sai-ease-out-1);
+}
+
+.sai-ty137c1l__dot:hover {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.sai-ty137c1l__dot--active {
+  background: var(--sai-color-accent, rgba(0, 0, 0, 0.8));
+  transform: scale(1.25);
+}
+
+/* ── Stepper indicator ── */
+
+.sai-ty137c1l__stepper {
+  text-align: center;
+  padding: var(--sai-size-3) 0;
+  font-family: var(--sai-font-body);
+  font-size: 0.8125rem;
+  color: var(--sai-color-fg);
+  opacity: 0.6;
+}
+
+/* ── Lightbox ── */
+
+.sai-ty137c1l__lightbox {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: var(--sai-ty137c1l-overlay-color, #000000e6);
+  z-index: 9999;
+}
+
+.sai-ty137c1l__lightbox::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.sai-ty137c1l__lightbox[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Lightbox header ── */
+
+.sai-ty137c1l__lightbox-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  flex-shrink: 0;
+}
+
+.sai-ty137c1l__lightbox-close {
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sai-ty137c1l__lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* ── Lightbox spotlight ── */
+
+.sai-ty137c1l__lightbox-spotlight {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sai-ty137c1l__lightbox-video-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.sai-ty137c1l__lightbox-spotlight img,
+.sai-ty137c1l__lightbox-spotlight video,
+.sai-ty137c1l__lightbox-video-wrap {
+  transition: transform 0.15s ease-out;
+  transform-origin: center center;
+}
+
+.sai-ty137c1l__lightbox-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+  padding: 0 60px;
+}
+
+.sai-ty137c1l__lightbox-spotlight img,
+.sai-ty137c1l__lightbox-spotlight video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: var(--sai-ty137c1l-lightbox-fit, contain);
+}
+
+/* ── Lightbox nav ── */
+
+.sai-ty137c1l__lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sai-ty137c1l__lightbox-nav:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.sai-ty137c1l__lightbox-nav--prev {
+  left: 16px;
+}
+
+.sai-ty137c1l__lightbox-nav--next {
+  right: 16px;
+}
+
+/* ── Lightbox thumbnails ── */
+
+.sai-ty137c1l__lightbox-thumbs {
+  display: flex;
+  justify-content: safe center;
+  gap: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sai-ty137c1l__lightbox-thumbs::-webkit-scrollbar {
+  display: none;
+}
+
+.sai-ty137c1l__lightbox-thumb {
+  flex-shrink: 0;
+  width: 56px;
+  height: auto;
+  aspect-ratio: var(--sai-ty137c1l-thumbnail-aspect, 1 / 1);
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  opacity: 0.5;
+  transition: border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.sai-ty137c1l__lightbox-thumb:hover {
+  opacity: 0.8;
+}
+
+.sai-ty137c1l__lightbox-thumb--active {
+  border-color: #fff;
+  opacity: 1;
+}
+
+.sai-ty137c1l__lightbox-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ───── Native fallback: no Spectrum metafields yet — show native product.media ───── */
+.sai-ty137c1l__native {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sai-ty137c1l__native-item {
+  width: 100%;
+}
+.sai-ty137c1l__native-media,
+.sai-ty137c1l__native-item img,
+.sai-ty137c1l__native-item video,
+.sai-ty137c1l__native-item model-viewer,
+.sai-ty137c1l__native-item iframe {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Closed <dialog> guard: some merchant themes ship the legacy reset
+   `dialog { display: block }`, an author rule that overrides the UA
+   `dialog:not([open])` default and would otherwise leave these overlays
+   painting over the page while closed. Hide them explicitly; the [open]
+   rules restore display when the dialog opens. */
+.sai-ty137c1l__lightbox:not([open]),
+.sai-ty137c1l__filter-dialog:not([open]) { display: none; }
+{% endstylesheet %}
+
+{%- assign asset_list = product.metafields.spectrum.media_assets.value -%}
+
+{%- assign selected_variant = product.selected_or_first_available_variant -%}
+{%- assign variant_slots = selected_variant.metafields.spectrum.media_slots.value -%}
+{%- assign product_slots = product.metafields.spectrum.media_slots.value -%}
+
+{%- comment -%}
+  Variant-specific gallery is opt-in. When on, the selected variant's own gallery
+  wins and falls back to the product gallery when the variant has none. When off
+  (the default), the product gallery always shows: variant slots are ignored here
+  and withheld from the client pool below so variant changes never swap galleries.
+{%- endcomment -%}
+{%- assign enable_variant_gallery = variant.content.enable_variant_gallery -%}
+{%- if enable_variant_gallery == nil -%}{%- assign enable_variant_gallery = false -%}{%- endif -%}
+
+{%- assign slot = nil -%}
+{%- if enable_variant_gallery and variant_slots != blank and variant_slots['gallery'] != blank -%}
+  {%- assign slot = variant_slots['gallery'] -%}
+{%- elsif product_slots != blank and product_slots['gallery'] != blank -%}
+  {%- assign slot = product_slots['gallery'] -%}
+{%- endif -%}
+
+{%- assign slot_variant = nil -%}
+{%- if slot != blank -%}
+  {%- for candidate in slot.variants -%}
+    {%- if candidate.targeting == blank -%}
+      {%- assign slot_variant = candidate -%}
+      {%- break -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+
+{%- assign asset_handles = slot_variant.assets -%}
+{%- assign asset_count = 0 -%}
+{%- if asset_handles != blank -%}
+  {%- assign asset_count = asset_handles.size -%}
+{%- endif -%}
+
+{%- comment -%}
+  Native data fallback. When the Spectrum gallery metafields are empty but the
+  product has native media, render the SAME rich structure (spotlight + thumbs,
+  configured layout) rather than the plain vertical stack — sourcing the handles
+  and the JSON pool from product.media. The web component rebuilds the gallery
+  from the pool, so the layout is identical to the metafield-backed path; only
+  the data origin differs. Handles are the native media ids (stringified).
+{%- endcomment -%}
+{%- assign sai_native_gallery = false -%}
+{%- if asset_count == 0 and product.media.size > 0 -%}
+  {%- assign sai_native_gallery = true -%}
+  {%- comment -%}
+    Join with a separator only *between* ids (no trailing comma). A trailing
+    comma is fragile across Liquid engines — Ruby's split drops the trailing
+    empty, but other engines keep it, which would inflate asset_count by one
+    and desync data-asset-count from the pool. Conditional comma avoids it.
+  {%- endcomment -%}
+  {%- assign sai_native_handles = '' -%}
+  {%- for media in product.media -%}
+    {%- unless forloop.first -%}{%- assign sai_native_handles = sai_native_handles | append: ',' -%}{%- endunless -%}
+    {%- assign sai_native_handles = sai_native_handles | append: media.id -%}
+  {%- endfor -%}
+  {%- assign asset_handles = sai_native_handles | split: ',' -%}
+  {%- assign asset_count = asset_handles.size -%}
+{%- endif -%}
+
+{%- comment -%} ── Resolve props from variant.content with defaults ── {%- endcomment -%}
+{%- assign _c = variant.content -%}
+{%- if _c.autoplay == nil -%}{%- assign autoplay = false -%}{%- else -%}{%- assign autoplay = _c.autoplay -%}{%- endif -%}
+{%- if _c.autoplay_interval == nil -%}{%- assign autoplay_interval = 5 -%}{%- else -%}{%- assign autoplay_interval = _c.autoplay_interval -%}{%- endif -%}
+{%- if _c.swipe_enabled == nil -%}{%- assign swipe_enabled = true -%}{%- else -%}{%- assign swipe_enabled = _c.swipe_enabled -%}{%- endif -%}
+{%- if _c.autoplay_video == nil -%}{%- assign autoplay_video = true -%}{%- else -%}{%- assign autoplay_video = _c.autoplay_video -%}{%- endif -%}
+{%- if _c.show_play_pause == nil -%}{%- assign show_play_pause = true -%}{%- else -%}{%- assign show_play_pause = _c.show_play_pause -%}{%- endif -%}
+{%- if _c.show_thumbnails == nil -%}{%- assign show_thumbnails = true -%}{%- else -%}{%- assign show_thumbnails = _c.show_thumbnails -%}{%- endif -%}
+{%- if _c.show_zoom_controls == nil -%}{%- assign show_zoom_controls = true -%}{%- else -%}{%- assign show_zoom_controls = _c.show_zoom_controls -%}{%- endif -%}
+{%- if _c.pinch_to_zoom == nil -%}{%- assign pinch_to_zoom = true -%}{%- else -%}{%- assign pinch_to_zoom = _c.pinch_to_zoom -%}{%- endif -%}
+{%- if _c.spotlight_object_fit == nil or _c.spotlight_object_fit == blank -%}{%- assign spotlight_object_fit = 'contain' -%}{%- else -%}{%- assign spotlight_object_fit = _c.spotlight_object_fit -%}{%- endif -%}
+{%- if _c.thumbnail_object_fit == nil or _c.thumbnail_object_fit == blank -%}{%- assign thumbnail_object_fit = 'cover' -%}{%- else -%}{%- assign thumbnail_object_fit = _c.thumbnail_object_fit -%}{%- endif -%}
+{%- if _c.lightbox_object_fit == nil or _c.lightbox_object_fit == blank -%}{%- assign lightbox_object_fit = 'contain' -%}{%- else -%}{%- assign lightbox_object_fit = _c.lightbox_object_fit -%}{%- endif -%}
+{%- if _c.image_border_radius == nil -%}{%- assign image_border_radius = 0 -%}{%- else -%}{%- assign image_border_radius = _c.image_border_radius -%}{%- endif -%}
+{%- if _c.overlay_color == nil or _c.overlay_color == blank -%}{%- assign overlay_color = '#000000e6' -%}{%- else -%}{%- assign overlay_color = _c.overlay_color -%}{%- endif -%}
+{%- if _c.active_thumb_border_color == nil or _c.active_thumb_border_color == blank -%}{%- assign active_thumb_border_color = '#000000' -%}{%- else -%}{%- assign active_thumb_border_color = _c.active_thumb_border_color -%}{%- endif -%}
+{%- if _c.thumbnails_visible == nil -%}{%- assign thumbnails_visible = 5 -%}{%- else -%}{%- assign thumbnails_visible = _c.thumbnails_visible -%}{%- endif -%}
+{%- if _c.filter_cta_label == nil or _c.filter_cta_label == blank -%}{%- assign filter_cta_label = 'Select model' -%}{%- else -%}{%- assign filter_cta_label = _c.filter_cta_label -%}{%- endif -%}
+{%- if _c.mobile_nav == nil or _c.mobile_nav == blank -%}{%- assign mobile_nav = 'dots' -%}{%- else -%}{%- assign mobile_nav = _c.mobile_nav -%}{%- endif -%}
+{%- comment -%} Default-to-safe: an unexpected value falls back to dots, the production-safe baseline. {%- endcomment -%}
+{%- if mobile_nav != 'dots' and mobile_nav != 'thumbnails' -%}{%- assign mobile_nav = 'dots' -%}{%- endif -%}
+{%- comment -%} Aspect ratios of the spotlight and thumbnail containers. Unknown / missing values fall back to the square default (generated-liquid rule #2). Thumbnails have no 'auto' option — the strip layout needs a uniform ratio. {%- endcomment -%}
+{%- if _c.spotlight_aspect_ratio == nil or _c.spotlight_aspect_ratio == blank -%}{%- assign spotlight_aspect_ratio = '1 / 1' -%}{%- else -%}{%- assign spotlight_aspect_ratio = _c.spotlight_aspect_ratio -%}{%- endif -%}
+{%- if spotlight_aspect_ratio == 'custom' -%}
+  {%- comment -%} Custom ratio: parse "W / H" and re-emit the COERCED numbers, never the raw input, so only digits / dot / slash / space can reach the inline <style> (generated-liquid rule #5). Non-numeric or non-positive falls back to square. {%- endcomment -%}
+  {%- assign _spot_parts = _c.spotlight_aspect_ratio_custom | split: '/' -%}
+  {%- assign spotlight_aspect_ratio = '1 / 1' -%}
+  {%- if _spot_parts.size == 2 -%}
+    {%- assign _spot_w = _spot_parts[0] | strip | times: 1.0 -%}
+    {%- assign _spot_h = _spot_parts[1] | strip | times: 1.0 -%}
+    {%- if _spot_w > 0 and _spot_h > 0 -%}
+      {%- assign spotlight_aspect_ratio = _spot_w | append: ' / ' | append: _spot_h -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- else -%}
+  {%- assign _valid_spot_ars = '1 / 1|4 / 5|3 / 4|2 / 3|4 / 3|3 / 2|16 / 9|auto' | split: '|' -%}
+  {%- unless _valid_spot_ars contains spotlight_aspect_ratio -%}{%- assign spotlight_aspect_ratio = '1 / 1' -%}{%- endunless -%}
+{%- endif -%}
+{%- if _c.thumbnail_aspect_ratio == nil or _c.thumbnail_aspect_ratio == blank -%}{%- assign thumbnail_aspect_ratio = '1 / 1' -%}{%- else -%}{%- assign thumbnail_aspect_ratio = _c.thumbnail_aspect_ratio -%}{%- endif -%}
+{%- if thumbnail_aspect_ratio == 'custom' -%}
+  {%- assign _thumb_parts = _c.thumbnail_aspect_ratio_custom | split: '/' -%}
+  {%- assign thumbnail_aspect_ratio = '1 / 1' -%}
+  {%- if _thumb_parts.size == 2 -%}
+    {%- assign _thumb_w = _thumb_parts[0] | strip | times: 1.0 -%}
+    {%- assign _thumb_h = _thumb_parts[1] | strip | times: 1.0 -%}
+    {%- if _thumb_w > 0 and _thumb_h > 0 -%}
+      {%- assign thumbnail_aspect_ratio = _thumb_w | append: ' / ' | append: _thumb_h -%}
+    {%- endif -%}
+  {%- endif -%}
+{%- else -%}
+  {%- assign _valid_thumb_ars = '1 / 1|4 / 5|3 / 4|2 / 3|4 / 3|3 / 2|16 / 9' | split: '|' -%}
+  {%- unless _valid_thumb_ars contains thumbnail_aspect_ratio -%}{%- assign thumbnail_aspect_ratio = '1 / 1' -%}{%- endunless -%}
+{%- endif -%}
+
+{%- if asset_count > 0 -%}
+<script src="{{ 'sai-snippet-ty137c1l.js' | asset_url }}" async></script>
+<sai-ty137c1l
+  class="sai-ty137c1l"
+  data-product-id="{{ product.id }}"
+  data-variant-id="{{ selected_variant.id }}"
+  data-asset-count="{{ asset_count }}"
+  data-autoplay="{{ autoplay }}"
+  data-autoplay-interval="{{ autoplay_interval }}"
+  data-swipe-enabled="{{ swipe_enabled }}"
+  data-autoplay-video="{{ autoplay_video }}"
+  data-show-play-pause="{{ show_play_pause }}"
+  data-show-lightbox-thumbs="{{ show_thumbnails }}"
+  data-show-zoom-controls="{{ show_zoom_controls }}"
+  data-pinch-to-zoom="{{ pinch_to_zoom }}"
+  data-spotlight-object-fit="{{ spotlight_object_fit }}"
+  data-thumbnail-object-fit="{{ thumbnail_object_fit }}"
+  data-lightbox-object-fit="{{ lightbox_object_fit }}"
+  data-filter-cta-label="{{ filter_cta_label | escape }}"
+  data-spotlight-aspect="{{ spotlight_aspect_ratio }}"
+>
+  <style>
+    sai-ty137c1l {
+      --sai-ty137c1l-spotlight-fit: {{ spotlight_object_fit }};
+      --sai-ty137c1l-thumb-fit: {{ thumbnail_object_fit }};
+      --sai-ty137c1l-lightbox-fit: {{ lightbox_object_fit }};
+      --sai-ty137c1l-active-thumb-border: {{ active_thumb_border_color }};
+      --sai-ty137c1l-img-radius: {{ image_border_radius }}px;
+      --sai-ty137c1l-overlay-color: {{ overlay_color }};
+      --sai-ty137c1l-thumbs-visible: {{ thumbnails_visible }};
+      --sai-ty137c1l-spotlight-aspect: {{ spotlight_aspect_ratio }};
+      --sai-ty137c1l-thumbnail-aspect: {{ thumbnail_aspect_ratio }};
+    }
+  </style>
+  {%- comment -%} ── Filter dialog (populated by JS from filterTags) ── {%- endcomment -%}
+  <dialog class="sai-ty137c1l__filter-dialog" aria-label="Filter images">
+    <div class="sai-ty137c1l__filter-panel">
+      <div class="sai-ty137c1l__filter-panel-header">
+        <span class="sai-ty137c1l__filter-panel-title">Filters</span>
+        <button class="sai-ty137c1l__filter-panel-clear" type="button" data-action="clear-filters" style="display:none">Clear all</button>
+      </div>
+      <div class="sai-ty137c1l__filter-tabs"></div>
+      <div class="sai-ty137c1l__filter-panel-body">
+        <div class="sai-ty137c1l__filters"></div>
+      </div>
+      <div class="sai-ty137c1l__filter-panel-footer">
+        <button class="sai-ty137c1l__filter-panel-cancel" type="button" data-action="close-filters">Cancel</button>
+        <button class="sai-ty137c1l__filter-panel-apply" type="button" data-action="apply-filters">Apply</button>
+      </div>
+    </div>
+  </dialog>
+
+  {%- comment -%} ── Desktop layout: spotlight on top, horizontal thumbs below ── {%- endcomment -%}
+  <div class="sai-ty137c1l__desktop">
+    <div class="sai-ty137c1l__spotlight-wrap">
+      {%- assign first_asset = nil -%}
+      {%- for asset_ref in asset_list -%}
+        {%- if asset_ref.system.handle == asset_handles[0] -%}
+          {%- assign first_asset = asset_ref -%}
+          {%- break -%}
+        {%- endif -%}
+      {%- endfor -%}
+
+      <div class="sai-ty137c1l__spotlight" data-index="0">
+        {%- if sai_native_gallery -%}
+          {%- assign sai_m0 = product.media.first -%}
+          {%- if sai_m0 != blank -%}
+            {%- if sai_m0.media_type == 'video' -%}
+              {%- assign sai_v0 = '' -%}
+              {%- if sai_m0.sources != blank -%}
+                {%- for source in sai_m0.sources -%}{%- if source.format == 'mp4' and sai_v0 == '' -%}{%- assign sai_v0 = source.url -%}{%- endif -%}{%- endfor -%}
+                {%- if sai_v0 == '' -%}{%- assign sai_v0 = sai_m0.sources.first.url -%}{%- endif -%}
+              {%- endif -%}
+              <video
+                class="sai-ty137c1l__spotlight-media"
+                src="{{ sai_v0 }}"
+                {%- if autoplay_video == true %} autoplay{% endif %}
+                muted loop playsinline
+                {%- if sai_m0.preview_image != blank %} poster="{{ sai_m0.preview_image | image_url: width: 1200 }}"{% endif %}
+              ></video>
+            {%- else -%}
+              <img
+                class="sai-ty137c1l__spotlight-media"
+                src="{{ sai_m0.preview_image | image_url: width: 1200 }}"
+                alt="{{ sai_m0.alt | escape }}"
+                width="{{ sai_m0.preview_image.width }}"
+                height="{{ sai_m0.preview_image.height }}"
+                loading="eager"
+                fetchpriority="high"
+              />
+            {%- endif -%}
+          {%- endif -%}
+        {%- elsif first_asset != blank -%}
+          {%- if first_asset.asset_type == 'video' -%}
+            {%- assign vid_file = first_asset.file.value | default: first_asset.file -%}
+            {%- assign vid_url = '' -%}
+            {%- if vid_file.sources != blank -%}
+              {%- for source in vid_file.sources -%}
+                {%- if source.format == 'mp4' and vid_url == '' -%}
+                  {%- assign vid_url = source.url -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- if vid_url == '' -%}
+                {%- assign vid_url = vid_file.sources.first.url -%}
+              {%- endif -%}
+            {%- elsif vid_file.url != blank -%}
+              {%- assign vid_url = vid_file.url -%}
+            {%- endif -%}
+            <video
+              class="sai-ty137c1l__spotlight-media"
+              src="{{ vid_url }}"
+              {%- if autoplay_video == true %} autoplay{% endif %}
+              muted loop playsinline
+              {%- if vid_file.preview_image != blank %} poster="{{ vid_file.preview_image | image_url: width: 1200 }}"{% endif %}
+            ></video>
+          {%- else -%}
+            <img
+              class="sai-ty137c1l__spotlight-media"
+              src="{{ first_asset.file | image_url: width: 1200 }}"
+              alt="{{ first_asset.alt | escape }}"
+              width="{{ first_asset.file.width }}"
+              height="{{ first_asset.file.height }}"
+              loading="eager"
+              fetchpriority="high"
+            />
+          {%- endif -%}
+        {%- endif -%}
+      </div>
+
+      <button class="sai-ty137c1l__select-model" type="button" data-action="toggle-filters" aria-label="Select model">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+          <path d="M3 6h18M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        {{ filter_cta_label | escape }}
+      </button>
+      <button class="sai-ty137c1l__zoom-trigger" type="button" data-action="open-lightbox" aria-label="Zoom">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+          <path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M8 11h6M11 8v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+      {%- if asset_count > 1 -%}
+        <button class="sai-ty137c1l__nav sai-ty137c1l__nav--prev" type="button" aria-label="Previous image" data-action="prev">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M15 18l-6-7 6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="sai-ty137c1l__nav sai-ty137c1l__nav--next" type="button" aria-label="Next image" data-action="next">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M9 18l6-7-6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      {%- endif -%}
+    </div>
+
+    <div class="sai-ty137c1l__thumbs">
+      {%- for handle in asset_handles -%}
+        {%- if sai_native_gallery -%}
+          {%- assign sai_tm = nil -%}
+          {%- for media in product.media -%}
+            {%- assign sai_tm_id = media.id | append: '' -%}
+            {%- if sai_tm_id == handle -%}{%- assign sai_tm = media -%}{%- break -%}{%- endif -%}
+          {%- endfor -%}
+          {%- if sai_tm != blank -%}
+            <button
+              class="sai-ty137c1l__thumb{% if forloop.first %} sai-ty137c1l__thumb--active{% endif %}"
+              type="button"
+              data-index="{{ forloop.index0 }}"
+              data-handle="{{ handle }}"
+              aria-label="View image {{ forloop.index }}"
+            >
+              {%- if sai_tm.media_type == 'video' -%}
+                {%- if sai_tm.preview_image != blank -%}
+                  <img class="sai-ty137c1l__thumb-media" src="{{ sai_tm.preview_image | image_url: width: 120 }}" alt="{{ sai_tm.alt | escape }}" loading="lazy" />
+                {%- endif -%}
+                <span class="sai-ty137c1l__thumb-play" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                </span>
+              {%- else -%}
+                <img class="sai-ty137c1l__thumb-media" src="{{ sai_tm.preview_image | image_url: width: 120 }}" alt="{{ sai_tm.alt | escape }}" loading="lazy" />
+              {%- endif -%}
+            </button>
+          {%- endif -%}
+        {%- else -%}
+        {%- assign thumb_asset = nil -%}
+        {%- for asset_ref in asset_list -%}
+          {%- if asset_ref.system.handle == handle -%}
+            {%- assign thumb_asset = asset_ref -%}
+            {%- break -%}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- if thumb_asset != blank -%}
+          <button
+            class="sai-ty137c1l__thumb{% if forloop.first %} sai-ty137c1l__thumb--active{% endif %}"
+            type="button"
+            data-index="{{ forloop.index0 }}"
+            data-handle="{{ handle }}"
+            aria-label="View image {{ forloop.index }}"
+          >
+            {%- if thumb_asset.asset_type == 'video' -%}
+              {%- assign thumb_vid_file = thumb_asset.file.value | default: thumb_asset.file -%}
+              {%- if thumb_vid_file.preview_image != blank -%}
+                <img
+                  class="sai-ty137c1l__thumb-media"
+                  src="{{ thumb_vid_file.preview_image | image_url: width: 120 }}"
+                  alt="{{ thumb_asset.alt | escape }}"
+                  loading="lazy"
+                />
+              {%- endif -%}
+              <span class="sai-ty137c1l__thumb-play" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              </span>
+            {%- else -%}
+              <img
+                class="sai-ty137c1l__thumb-media"
+                src="{{ thumb_asset.file | image_url: width: 120 }}"
+                alt="{{ thumb_asset.alt | escape }}"
+                loading="lazy"
+              />
+            {%- endif -%}
+          </button>
+        {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+    </div>
+  </div>
+
+  {%- comment -%} ── Mobile layout: spotlight + chevrons + dots ── {%- endcomment -%}
+  <div class="sai-ty137c1l__mobile">
+    <div class="sai-ty137c1l__mobile-spotlight-wrap">
+      <div class="sai-ty137c1l__mobile-track">
+        {%- for handle in asset_handles -%}
+          {%- if sai_native_gallery -%}
+          {%- assign sai_sm = nil -%}
+          {%- for media in product.media -%}
+            {%- assign sai_sm_id = media.id | append: '' -%}
+            {%- if sai_sm_id == handle -%}{%- assign sai_sm = media -%}{%- break -%}{%- endif -%}
+          {%- endfor -%}
+          {%- if sai_sm != blank -%}
+            <div class="sai-ty137c1l__mobile-slide" data-index="{{ forloop.index0 }}" data-handle="{{ handle }}">
+              {%- if sai_sm.media_type == 'video' -%}
+                {%- assign sai_sv = '' -%}
+                {%- if sai_sm.sources != blank -%}
+                  {%- for source in sai_sm.sources -%}{%- if source.format == 'mp4' and sai_sv == '' -%}{%- assign sai_sv = source.url -%}{%- endif -%}{%- endfor -%}
+                  {%- if sai_sv == '' -%}{%- assign sai_sv = sai_sm.sources.first.url -%}{%- endif -%}
+                {%- endif -%}
+                <video
+                  class="sai-ty137c1l__spotlight-media"
+                  src="{{ sai_sv }}"
+                  {%- if autoplay_video == true %} autoplay{% endif %}
+                  muted loop playsinline
+                  {%- if sai_sm.preview_image != blank %} poster="{{ sai_sm.preview_image | image_url: width: 800 }}"{% endif %}
+                ></video>
+              {%- else -%}
+                <img
+                  class="sai-ty137c1l__spotlight-media"
+                  src="{{ sai_sm.preview_image | image_url: width: 800 }}"
+                  alt="{{ sai_sm.alt | escape }}"
+                  {% if forloop.first %}loading="eager" fetchpriority="high"{% else %}loading="lazy"{% endif %}
+                />
+              {%- endif -%}
+            </div>
+          {%- endif -%}
+          {%- else -%}
+          {%- assign slide_asset = nil -%}
+          {%- for asset_ref in asset_list -%}
+            {%- if asset_ref.system.handle == handle -%}
+              {%- assign slide_asset = asset_ref -%}
+              {%- break -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- if slide_asset != blank -%}
+            <div class="sai-ty137c1l__mobile-slide" data-index="{{ forloop.index0 }}" data-handle="{{ handle }}">
+              {%- if slide_asset.asset_type == 'video' -%}
+                {%- assign s_vid_file = slide_asset.file.value | default: slide_asset.file -%}
+                {%- assign s_vid_url = '' -%}
+                {%- if s_vid_file.sources != blank -%}
+                  {%- for source in s_vid_file.sources -%}
+                    {%- if source.format == 'mp4' and s_vid_url == '' -%}
+                      {%- assign s_vid_url = source.url -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- if s_vid_url == '' -%}
+                    {%- assign s_vid_url = s_vid_file.sources.first.url -%}
+                  {%- endif -%}
+                {%- elsif s_vid_file.url != blank -%}
+                  {%- assign s_vid_url = s_vid_file.url -%}
+                {%- endif -%}
+                <video
+                  class="sai-ty137c1l__spotlight-media"
+                  src="{{ s_vid_url }}"
+                  {%- if autoplay_video == true %} autoplay{% endif %}
+              muted loop playsinline
+                  {%- if s_vid_file.preview_image != blank %} poster="{{ s_vid_file.preview_image | image_url: width: 800 }}"{% endif %}
+                ></video>
+              {%- else -%}
+                <img
+                  class="sai-ty137c1l__spotlight-media"
+                  src="{{ slide_asset.file | image_url: width: 800 }}"
+                  alt="{{ slide_asset.alt | escape }}"
+                  {% if forloop.first %}loading="eager" fetchpriority="high"{% else %}loading="lazy"{% endif %}
+                />
+              {%- endif -%}
+            </div>
+          {%- endif -%}
+          {%- endif -%}
+        {%- endfor -%}
+      </div>
+
+      <button class="sai-ty137c1l__select-model" type="button" data-action="toggle-filters" aria-label="Select model">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+          <path d="M3 6h18M7 12h10M10 18h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        {{ filter_cta_label | escape }}
+      </button>
+      <button class="sai-ty137c1l__zoom-trigger" type="button" data-action="open-lightbox" aria-label="Zoom">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+          <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/>
+          <path d="M21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M8 11h6M11 8v6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </button>
+      {%- if asset_count > 1 -%}
+        <button class="sai-ty137c1l__nav sai-ty137c1l__nav--prev" type="button" aria-label="Previous image" data-action="prev">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M15 18l-6-7 6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button class="sai-ty137c1l__nav sai-ty137c1l__nav--next" type="button" aria-label="Next image" data-action="next">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+            <path d="M9 18l6-7-6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      {%- endif -%}
+    </div>
+
+    {%- if asset_count > 1 -%}
+      {%- if mobile_nav == 'thumbnails' -%}
+        {%- comment -%} Mobile thumbnail strip — reuses the .__thumb button so the JS thumb sync (active class + scroll-into-view + click→goTo) drives it identically to the desktop strip. {%- endcomment -%}
+        <div class="sai-ty137c1l__mobile-thumbs">
+          {%- for handle in asset_handles -%}
+            {%- if sai_native_gallery -%}
+            {%- assign sai_mt = nil -%}
+            {%- for media in product.media -%}
+              {%- assign sai_mt_id = media.id | append: '' -%}
+              {%- if sai_mt_id == handle -%}{%- assign sai_mt = media -%}{%- break -%}{%- endif -%}
+            {%- endfor -%}
+            {%- if sai_mt != blank -%}
+              <button
+                class="sai-ty137c1l__thumb{% if forloop.first %} sai-ty137c1l__thumb--active{% endif %}"
+                type="button"
+                data-index="{{ forloop.index0 }}"
+                data-handle="{{ handle }}"
+                aria-label="View image {{ forloop.index }}"
+              >
+                {%- if sai_mt.media_type == 'video' -%}
+                  {%- if sai_mt.preview_image != blank -%}
+                    <img class="sai-ty137c1l__thumb-media" src="{{ sai_mt.preview_image | image_url: width: 120 }}" alt="{{ sai_mt.alt | escape }}" loading="lazy" />
+                  {%- endif -%}
+                  <span class="sai-ty137c1l__thumb-play" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  </span>
+                {%- else -%}
+                  <img class="sai-ty137c1l__thumb-media" src="{{ sai_mt.preview_image | image_url: width: 120 }}" alt="{{ sai_mt.alt | escape }}" loading="lazy" />
+                {%- endif -%}
+              </button>
+            {%- endif -%}
+            {%- else -%}
+            {%- assign m_thumb_asset = nil -%}
+            {%- for asset_ref in asset_list -%}
+              {%- if asset_ref.system.handle == handle -%}
+                {%- assign m_thumb_asset = asset_ref -%}
+                {%- break -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if m_thumb_asset != blank -%}
+              <button
+                class="sai-ty137c1l__thumb{% if forloop.first %} sai-ty137c1l__thumb--active{% endif %}"
+                type="button"
+                data-index="{{ forloop.index0 }}"
+                data-handle="{{ handle }}"
+                aria-label="View image {{ forloop.index }}"
+              >
+                {%- if m_thumb_asset.asset_type == 'video' -%}
+                  {%- assign m_thumb_vid_file = m_thumb_asset.file.value | default: m_thumb_asset.file -%}
+                  {%- if m_thumb_vid_file.preview_image != blank -%}
+                    <img
+                      class="sai-ty137c1l__thumb-media"
+                      src="{{ m_thumb_vid_file.preview_image | image_url: width: 120 }}"
+                      alt="{{ m_thumb_asset.alt | escape }}"
+                      loading="lazy"
+                    />
+                  {%- endif -%}
+                  <span class="sai-ty137c1l__thumb-play" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                  </span>
+                {%- else -%}
+                  <img
+                    class="sai-ty137c1l__thumb-media"
+                    src="{{ m_thumb_asset.file | image_url: width: 120 }}"
+                    alt="{{ m_thumb_asset.alt | escape }}"
+                    loading="lazy"
+                  />
+                {%- endif -%}
+              </button>
+            {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+        </div>
+      {%- else -%}
+        <div class="sai-ty137c1l__dots">
+          {%- for handle in asset_handles -%}
+            <button
+              class="sai-ty137c1l__dot{% if forloop.first %} sai-ty137c1l__dot--active{% endif %}"
+              type="button"
+              data-index="{{ forloop.index0 }}"
+              aria-label="Go to image {{ forloop.index }}"
+            ></button>
+          {%- endfor -%}
+        </div>
+      {%- endif -%}
+    {%- endif -%}
+  </div>
+
+  {%- comment -%} ── Lightbox: spotlight + thumbnail strip ── {%- endcomment -%}
+  <dialog class="sai-ty137c1l__lightbox" aria-modal="true" aria-label="Product gallery">
+    <div class="sai-ty137c1l__lightbox-header">
+      <button class="sai-ty137c1l__lightbox-close" type="button" data-action="close-lightbox" aria-label="Close gallery">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+          <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <div class="sai-ty137c1l__lightbox-main">
+      <div class="sai-ty137c1l__lightbox-spotlight"></div>
+      <button class="sai-ty137c1l__lightbox-nav sai-ty137c1l__lightbox-nav--prev" type="button" data-action="lightbox-prev" aria-label="Previous">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+          <path d="M15 18l-6-7 6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button class="sai-ty137c1l__lightbox-nav sai-ty137c1l__lightbox-nav--next" type="button" data-action="lightbox-next" aria-label="Next">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+          <path d="M9 18l6-7-6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+    <div class="sai-ty137c1l__lightbox-thumbs"></div>
+  </dialog>
+</sai-ty137c1l>
+
+{%- comment -%}
+  Bespoke pool — pre-loads all assets + variant slots.
+  O(n) handle lookup: JS builds a Map from this, no nested iteration.
+{%- endcomment -%}
+<script type="application/json" data-spectrum-snippet-pool>
+{
+  "assets": {
+    {%- assign first_asset_emitted = false -%}
+    {%- if sai_native_gallery -%}
+    {%- for media in product.media -%}
+      {%- unless first_asset_emitted -%}{%- assign first_asset_emitted = true -%}{%- else -%},{%- endunless -%}
+      {%- assign m_handle = media.id | append: '' -%}
+      {%- assign m_type = 'image' -%}
+      {%- assign m_url = '' -%}
+      {%- assign m_thumb = '' -%}
+      {%- assign m_width = 0 -%}
+      {%- assign m_height = 0 -%}
+      {%- if media.media_type == 'video' -%}
+        {%- assign m_type = 'video' -%}
+        {%- if media.sources != blank -%}
+          {%- for source in media.sources -%}
+            {%- if source.format == 'mp4' and m_url == '' -%}{%- assign m_url = source.url -%}{%- endif -%}
+          {%- endfor -%}
+          {%- if m_url == '' -%}{%- assign m_url = media.sources.first.url -%}{%- endif -%}
+        {%- endif -%}
+        {%- if media.preview_image != blank -%}{%- assign m_thumb = media.preview_image | image_url: width: 120 -%}{%- endif -%}
+      {%- else -%}
+        {%- if media.preview_image != blank -%}
+          {%- assign m_url = media.preview_image | image_url: width: 1200 -%}
+          {%- assign m_thumb = media.preview_image | image_url: width: 120 -%}
+          {%- assign m_width = media.preview_image.width -%}
+          {%- assign m_height = media.preview_image.height -%}
+        {%- endif -%}
+      {%- endif -%}
+      {{ m_handle | json }}: {
+        "id": {{ m_handle | json }},
+        "type": {{ m_type | json }},
+        "url": {{ m_url | json }},
+        "thumb": {{ m_thumb | json }},
+        "alt": {{ media.alt | default: '' | json }},
+        "tags": {},
+        "width": {{ m_width | json }},
+        "height": {{ m_height | json }}
+      }
+    {%- endfor -%}
+    {%- else -%}
+    {%- for asset_ref in asset_list -%}
+      {%- assign a_handle = asset_ref.system.handle -%}
+      {%- assign a_type = asset_ref.asset_type | default: 'image' -%}
+      {%- assign a_url = '' -%}
+      {%- assign a_width = 0 -%}
+      {%- assign a_height = 0 -%}
+      {%- assign a_thumb = '' -%}
+
+      {%- if a_type == 'video' -%}
+        {%- assign a_file = asset_ref.file.value | default: asset_ref.file -%}
+        {%- if a_file.sources != blank -%}
+          {%- for source in a_file.sources -%}
+            {%- if source.format == 'mp4' and a_url == '' -%}
+              {%- assign a_url = source.url -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- if a_url == '' -%}
+            {%- assign a_url = a_file.sources.first.url -%}
+          {%- endif -%}
+        {%- elsif a_file.url != blank -%}
+          {%- assign a_url = a_file.url -%}
+        {%- endif -%}
+        {%- if a_file.preview_image != blank -%}
+          {%- assign a_thumb = a_file.preview_image | image_url: width: 120 -%}
+        {%- elsif asset_ref.file.preview_image != blank -%}
+          {%- assign a_thumb = asset_ref.file.preview_image | image_url: width: 120 -%}
+        {%- endif -%}
+      {%- else -%}
+        {%- assign a_url = asset_ref.file | image_url: width: 1200 -%}
+        {%- assign a_thumb = asset_ref.file | image_url: width: 120 -%}
+        {%- assign a_width = asset_ref.file.width -%}
+        {%- assign a_height = asset_ref.file.height -%}
+      {%- endif -%}
+
+      {%- unless first_asset_emitted -%}{%- assign first_asset_emitted = true -%}{%- else -%},{%- endunless -%}
+      {{ a_handle | json }}: {
+        "id": {{ asset_ref.asset_id | json }},
+        "type": {{ a_type | json }},
+        "url": {{ a_url | json }},
+        "thumb": {{ a_thumb | json }},
+        "alt": {{ asset_ref.alt | default: '' | json }},
+        "tags": {
+          {%- assign a_tags = asset_ref.tags.value -%}
+          {%- if a_tags != blank -%}
+            {%- for pair in a_tags -%}
+              {%- unless forloop.first -%},{%- endunless -%}
+              {%- if pair[1].value != blank -%}
+                {{ pair[0] | json }}: {{ pair[1].value | json }}
+              {%- else -%}
+                {{ pair[0] | json }}: {{ pair[1] | json }}
+              {%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+        },
+        "width": {{ a_width | json }},
+        "height": {{ a_height | json }}
+      }
+    {%- endfor -%}
+    {%- endif -%}
+  },
+  "productSlots": {
+    {%- if sai_native_gallery -%}
+      "gallery": {
+        "filterTags": {},
+        "variants": [{ "targeting": null, "assets": [
+          {%- for media in product.media -%}{%- unless forloop.first -%},{%- endunless -%}{{ media.id | append: '' | json }}{%- endfor -%}
+        ] }]
+      }
+    {%- elsif product_slots != blank -%}
+      {%- for pair in product_slots -%}
+        {%- unless forloop.first -%},{%- endunless -%}
+        {{ pair[0] | json }}: {
+          "filterTags": {
+            {%- for ft in pair[1].filterTags -%}
+              {%- unless forloop.first -%},{%- endunless -%}
+              {{ ft[0] | json }}: {{ ft[1] | json }}
+            {%- endfor -%}
+          },
+          "variants": {{ pair[1].variants | json }}
+        }
+      {%- endfor -%}
+    {%- endif -%}
+  },
+  "variantSlots": {
+    {%- comment -%} Withheld unless variant gallery is enabled — keeps the client from swapping galleries on variant change when the feature is off. {%- endcomment -%}
+    {%- if enable_variant_gallery -%}
+    {%- assign first_vs = true -%}
+    {%- for v in product.variants -%}
+      {%- assign v_slots = v.metafields.spectrum.media_slots.value -%}
+      {%- if v_slots != blank -%}
+        {%- unless first_vs -%},{%- endunless -%}
+        {%- assign first_vs = false -%}
+        {{ v.id | append: '' | json }}: {
+          {%- for vpair in v_slots -%}
+            {%- unless forloop.first -%},{%- endunless -%}
+            {{ vpair[0] | json }}: {
+              "filterTags": {
+                {%- for vft in vpair[1].filterTags -%}
+                  {%- unless forloop.first -%},{%- endunless -%}
+                  {{ vft[0] | json }}: {{ vft[1] | json }}
+                {%- endfor -%}
+              },
+              "variants": {{ vpair[1].variants | json }}
+            }
+          {%- endfor -%}
+        }
+      {%- endif -%}
+    {%- endfor -%}
+    {%- endif -%}
+  },
+  "displayConfigImages": {
+    {%- assign first_dci = true -%}
+    {%- for asset_ref in asset_list -%}
+      {%- assign dca_list = asset_ref.display_config_assets.value -%}
+      {%- if dca_list != blank -%}
+        {%- for dca_media in dca_list -%}
+          {%- unless first_dci -%},{%- endunless -%}
+          {%- assign first_dci = false -%}
+          {%- capture _dci_gid -%}gid://shopify/MediaImage/{{ dca_media.id }}{%- endcapture -%}
+          {{ _dci_gid | json }}: {{ dca_media | image_url: width: 200 | json }}
+        {%- endfor -%}
+      {%- endif -%}
+    {%- endfor -%}
+  }
+}
+</script>
+{%- else -%}
+  {%- comment -%}
+    Native fallback — the Spectrum gallery metafields are absent or empty (a product still mirroring,
+    or one whose only media Spectrum cannot faithfully mirror yet). Render the native product.media so
+    the PDP is never blank. Self-contained: no web component, no JS, so it renders whether or not the
+    mirror has run, and shows whatever Shopify has natively (including 3D / external video).
+  {%- endcomment -%}
+  {%- if product.media.size > 0 -%}
+    <div class="sai-ty137c1l__native">
+      {%- for media in product.media -%}
+        <div class="sai-ty137c1l__native-item">
+          {%- if media.media_type == 'image' -%}
+            <img
+              class="sai-ty137c1l__native-media"
+              src="{{ media.preview_image | image_url: width: 1200 }}"
+              alt="{{ media.alt | escape }}"
+              width="{{ media.preview_image.width }}"
+              height="{{ media.preview_image.height }}"
+              {% if forloop.first %}loading="eager" fetchpriority="high"{% else %}loading="lazy"{% endif %}
+            />
+          {%- else -%}
+            {{ media | media_tag }}
+          {%- endif -%}
+        </div>
+      {%- endfor -%}
+    </div>
+  {%- endif -%}
+{%- endif -%}
