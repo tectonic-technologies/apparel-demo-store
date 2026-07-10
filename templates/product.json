@@ -232,7 +232,7 @@
                     "desc_snippet": {
                       "type": "custom-liquid",
                       "settings": {
-                        "custom_liquid": "{% comment %} Product description accordion: renders the Spectrum long_description snippet, plus chrome overrides scoped via :has() to only this accordion (drop the first-row top divider, taller/heavier summary header). {% endcomment %}<style>.accordion:has(.sai-pd-accordion) accordion-custom:first-child .details{border-block-start:none}.accordion:has(.sai-pd-accordion) .details__header{font-weight:600;min-height:64px;padding-block:14px}</style><div class=\"sai-pd-accordion\">{% render '_sai-z5gf9fqyc70mzxlhcssoskgq', sai_state: 'draft' %}</div>"
+                        "custom_liquid": "{% comment %} Product description accordion: renders the Spectrum long_description snippet, plus chrome overrides scoped via :has() to only this accordion (drop the first-row top divider, taller/heavier summary header). {% endcomment %}<style>.accordion:has(.sai-pd-accordion) accordion-custom:first-child .details{border-block-start:none}.accordion:has(.sai-pd-accordion) .details__header{font-weight:600;font-size:1.125rem;min-height:64px;padding-block:14px}</style><div class=\"sai-pd-accordion\">{% render '_sai-z5gf9fqyc70mzxlhcssoskgq', sai_state: 'draft' %}</div>"
                       },
                       "blocks": {}
                     }
@@ -275,7 +275,7 @@
                     "highlights_snippet": {
                       "type": "custom-liquid",
                       "settings": {
-                        "custom_liquid": "{% comment %} Product highlights accordion: renders the Spectrum top_highlights snippet, plus chrome overrides scoped via :has() to only this accordion (drop the first-row top divider, taller/heavier summary header). {% endcomment %}<style>.accordion:has(.sai-ph-accordion){margin-block-start:-18px}.accordion:has(.sai-ph-accordion) accordion-custom:first-child .details{border-block-start:none}.accordion:has(.sai-ph-accordion) .details__header{font-weight:600;min-height:64px;padding-block:14px}</style><div class=\"sai-ph-accordion\">{% render '_sai-gm6mrykaz5clhzwvhbjqm3hc', sai_state: 'draft' %}</div>"
+                        "custom_liquid": "{% comment %} Product highlights accordion: renders the Spectrum top_highlights snippet, plus chrome overrides scoped via :has() to only this accordion (drop the first-row top divider, taller/heavier summary header). {% endcomment %}<style>.accordion:has(.sai-ph-accordion){margin-block-start:-18px}.accordion:has(.sai-ph-accordion) accordion-custom:first-child .details{border-block-start:none}.accordion:has(.sai-ph-accordion) .details__header{font-weight:600;font-size:1.125rem;min-height:64px;padding-block:14px}</style><div class=\"sai-ph-accordion\">{% render '_sai-gm6mrykaz5clhzwvhbjqm3hc', sai_state: 'draft' %}</div>"
                       },
                       "blocks": {}
                     }
