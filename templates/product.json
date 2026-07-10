@@ -155,13 +155,6 @@
                 "price_tVjtKg"
               ]
             },
-            "sai_top_highlights": {
-              "type": "custom-liquid",
-              "settings": {
-                "custom_liquid": "{% render '_sai-gm6mrykaz5clhzwvhbjqm3hc', sai_state: 'draft' %}"
-              },
-              "blocks": {}
-            },
             "variant_picker_R3rGDr": {
               "type": "variant-picker",
               "settings": {
@@ -252,14 +245,57 @@
               "block_order": [
                 "accordion_row_description"
               ]
+            },
+            "product_highlights_accordion": {
+              "type": "accordion",
+              "name": "Accordion",
+              "settings": {
+                "icon": "caret",
+                "dividers": true,
+                "type_preset": "h6",
+                "border": "none",
+                "border_width": 1,
+                "border_opacity": 100,
+                "border_radius": 0,
+                "padding-block-start": 0,
+                "padding-block-end": 0,
+                "padding-inline-start": 0,
+                "padding-inline-end": 0
+              },
+              "blocks": {
+                "accordion_row_highlights": {
+                  "type": "_accordion-row",
+                  "settings": {
+                    "heading": "Product highlights",
+                    "open_by_default": false,
+                    "icon": "none",
+                    "width": 20
+                  },
+                  "blocks": {
+                    "highlights_snippet": {
+                      "type": "custom-liquid",
+                      "settings": {
+                        "custom_liquid": "{% comment %} Product highlights accordion: renders the Spectrum top_highlights snippet, plus chrome overrides scoped via :has() to only this accordion (drop the first-row top divider, taller/heavier summary header). {% endcomment %}<style>.accordion:has(.sai-ph-accordion) accordion-custom:first-child .details{border-block-start:none}.accordion:has(.sai-ph-accordion) .details__header{font-weight:600;min-height:64px;padding-block:14px}</style><div class=\"sai-ph-accordion\">{% render '_sai-gm6mrykaz5clhzwvhbjqm3hc', sai_state: 'draft' %}</div>"
+                      },
+                      "blocks": {}
+                    }
+                  },
+                  "block_order": [
+                    "highlights_snippet"
+                  ]
+                }
+              },
+              "block_order": [
+                "accordion_row_highlights"
+              ]
             }
           },
           "block_order": [
             "group_icgrde",
-            "sai_top_highlights",
             "variant_picker_R3rGDr",
             "buy_buttons_eYQEYi",
-            "product_description_accordion"
+            "product_description_accordion",
+            "product_highlights_accordion"
           ]
         },
         "disclosures": {
