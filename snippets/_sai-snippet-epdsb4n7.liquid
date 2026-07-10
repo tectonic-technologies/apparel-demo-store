@@ -1,0 +1,172 @@
+{%- comment -%}
+  Enriched Product Description Standalone (epdsb4n7) — plain content block
+  rendering PCE's product long-description on the PDP without accordion
+  chrome.
+
+  Wrapper contract (resource-scope simple slot):
+    - variant            : default variant from mo.variants.value.variants
+    - slot               : matched long_description simple slot
+                            { slotKey, payload } from
+                            product.metafields.spectrum.long_description_live
+    - slot_payload       : slot.payload (already parsed JSON)
+    - entry              : resolved default entry from slot_payload.entries
+    - mo                 : spectrum_snippet_instance metaobject drop
+    - mutation_handle    : 'mut-{instanceId}' (consumed by wrapper outer div)
+    - experience_handle  : (consumed by wrapper outer div)
+
+  variant.content fields (presentation):
+    - heading   string   optional section heading shown above the body.
+                         Blank → the heading element is omitted entirely.
+
+  entry.content fields (slot-derived from PCE):
+    - html   string   long-description HTML; emitted raw (see Trust boundary)
+
+  Shares featureSlug "long_description" with the accordion snippet
+  (epda7k2m), so both read the same PCE metafield. See
+  packages/snippet-library/docs/long_description.analytics.md for the
+  shared analytics catalogue.
+
+  Trust boundary:
+    Backend-supplied content is trusted by contract. {{ entry.content.html }}
+    is emitted raw — no sanitisation, no transform, no escape. PCE / the
+    persist-pending-long-description tool owns sanitisation. Do NOT add
+    `| escape`, `| strip_html`, or any defensive filter here.
+
+  Empty-state:
+    If `entry` is nil or `entry.content.html` is blank, render nothing —
+    not even the heading. The wrapper still emits the outer `<div>`, but
+    the inner contents collapse to empty whitespace.
+{%- endcomment -%}
+
+{% stylesheet %}
+/* Enriched Product Description Standalone (epdsb4n7) */
+
+.sai-epdsb4n7 {
+  --sai-epdsb4n7-max-width: 64rem;
+  --sai-epdsb4n7-divider: rgba(0, 0, 0, 0.12);
+
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  max-inline-size: var(--sai-epdsb4n7-max-width);
+  margin-inline: auto;
+  margin-block: var(--sai-size-5);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--sai-color-fg);
+}
+
+.sai-epdsb4n7__container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+}
+
+.sai-epdsb4n7__heading {
+  margin: 0;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.5rem;
+  line-height: 1.3;
+  color: var(--sai-color-fg);
+}
+
+.sai-epdsb4n7__body {
+  color: var(--sai-color-fg);
+}
+
+/* Prose styles — kept in sync with the accordion variant (epda7k2m) so
+   merchants can swap between the two snippets without visual drift. */
+
+.sai-epdsb4n7__body > :first-child {
+  margin-block-start: 0;
+}
+
+.sai-epdsb4n7__body > :last-child {
+  margin-block-end: 0;
+}
+
+.sai-epdsb4n7__body p {
+  margin-block: var(--sai-size-3);
+}
+
+.sai-epdsb4n7__body h2,
+.sai-epdsb4n7__body h3,
+.sai-epdsb4n7__body h4 {
+  margin-block: var(--sai-size-4) var(--sai-size-2);
+  font-family: var(--sai-font-heading);
+  font-weight: var(--sai-font-heading-weight);
+  line-height: 1.3;
+}
+
+.sai-epdsb4n7__body h2 { font-size: 1.25rem; }
+.sai-epdsb4n7__body h3 { font-size: 1.125rem; }
+.sai-epdsb4n7__body h4 { font-size: 1rem; }
+
+.sai-epdsb4n7__body ul,
+.sai-epdsb4n7__body ol {
+  margin-block: var(--sai-size-3);
+  padding-inline-start: 1.5rem;
+}
+
+.sai-epdsb4n7__body li {
+  margin-block: var(--sai-size-1);
+}
+
+.sai-epdsb4n7__body a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.sai-epdsb4n7__body strong {
+  font-weight: 600;
+}
+
+.sai-epdsb4n7__body table {
+  width: 100%;
+  margin-block: var(--sai-size-3);
+  border-collapse: collapse;
+  border: 1px solid var(--sai-epdsb4n7-divider);
+}
+
+.sai-epdsb4n7__body th,
+.sai-epdsb4n7__body td {
+  padding: var(--sai-size-2) var(--sai-size-3);
+  border: 1px solid var(--sai-epdsb4n7-divider);
+  text-align: start;
+  vertical-align: top;
+}
+
+.sai-epdsb4n7__body th {
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.sai-epdsb4n7__body img {
+  max-inline-size: 100%;
+  block-size: auto;
+}
+{% endstylesheet %}
+
+<script src="{{ 'sai-snippet-epdsb4n7.js' | asset_url }}" async></script>
+
+{%- assign content = variant.content -%}
+{%- assign heading = content.heading -%}
+{%- assign body_html = entry.content.html -%}
+
+{%- if entry and body_html != blank -%}
+  <sai-epdsb4n7 class="sai-epdsb4n7">
+    <div class="sai-epdsb4n7__container">
+      {%- if heading != blank -%}
+        <h2 class="sai-epdsb4n7__heading">{{ heading }}</h2>
+      {%- endif -%}
+      <div class="sai-epdsb4n7__body" data-slot="body">
+        {{ body_html }}
+      </div>
+    </div>
+  </sai-epdsb4n7>
+{%- endif -%}
