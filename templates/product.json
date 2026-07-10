@@ -275,7 +275,7 @@
                     "highlights_snippet": {
                       "type": "custom-liquid",
                       "settings": {
-                        "custom_liquid": "{% comment %} Product highlights accordion: renders the Spectrum top_highlights snippet, plus chrome overrides scoped via :has() to only this accordion (drop the first-row top divider, taller/heavier summary header). {% endcomment %}<style>.accordion:has(.sai-ph-accordion) accordion-custom:first-child .details{border-block-start:none}.accordion:has(.sai-ph-accordion) .details__header{font-weight:600;min-height:64px;padding-block:14px}</style><div class=\"sai-ph-accordion\">{% render '_sai-gm6mrykaz5clhzwvhbjqm3hc', sai_state: 'draft' %}</div>"
+                        "custom_liquid": "{% comment %} Product highlights accordion: renders the Spectrum top_highlights snippet, plus chrome overrides scoped via :has() to only this accordion (drop the first-row top divider, taller/heavier summary header). {% endcomment %}<style>.accordion:has(.sai-ph-accordion){margin-block-start:-18px}.accordion:has(.sai-ph-accordion) accordion-custom:first-child .details{border-block-start:none}.accordion:has(.sai-ph-accordion) .details__header{font-weight:600;min-height:64px;padding-block:14px}</style><div class=\"sai-ph-accordion\">{% render '_sai-gm6mrykaz5clhzwvhbjqm3hc', sai_state: 'draft' %}</div>"
                       },
                       "blocks": {}
                     }
