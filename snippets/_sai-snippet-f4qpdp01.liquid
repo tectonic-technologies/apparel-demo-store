@@ -1,0 +1,777 @@
+{%- comment -%}
+  PDP FAQs — accordion of inline FAQ items + Ask AI block.
+
+  Wrapper contract (post snippet-content-slots foundation, simple slot —
+  see docs/brainstorming/2026-05-01-snippet-content-slots-foundation.md
+  §4.2 + §5.3):
+    - variant            : default variant from mo.variants.value.variants
+    - slot               : matched faqs simple slot { slotKey, payload }
+    - slot_payload       : slot.payload (already parsed JSON; NO .value
+                                          accessor — simple slots use a
+                                          json metafield, not metaobject refs)
+    - entry              : resolved default entry from slot_payload.entries
+    - mo                 : spectrum_snippet_instance metaobject drop
+    - mutation_handle    : 'mut-{instanceId}' (consumed by wrapper outer div)
+    - experience_handle  : (consumed by wrapper outer div)
+
+  variant.content fields (presentation only):
+    - heading             string (optional)   top-level section heading
+    - subheading          string (optional)   subtitle below the heading
+    - qa_heading          string (optional)   Ask AI block heading
+    - input_placeholder   string (optional)   ask-input placeholder text
+    - show_faqs           boolean (optional)  show/hide FAQs accordion (default: true)
+    - show_qa             boolean (optional)  show/hide Ask AI block (default: true)
+    - show_branding       boolean (optional)  show/hide "Powered by Spectrum AI" footer (default: true)
+
+  entry.content fields (slot-derived):
+    - items   Array<{
+                question: string,     accordion summary text; ALSO the source
+                                       for data-faq-id (derived via Liquid
+                                       `| handleize` here, mirrored in JS by
+                                       buildItem). The backend FaqSlotItem
+                                       shape does not carry an `id` field.
+                answerHtml: string,   string emitted raw (see Trust boundary
+                                       below)
+                category?: string,    optional grouping tag
+              }>
+
+  Trust boundary:
+    Backend-supplied content is trusted by contract. The snippet is a
+    passive renderer: answerHtml is emitted raw via {{ item.answerHtml }}
+    with no sanitisation, no transform, no escape. If the data shape is
+    wrong, the playbook author / portal write path is responsible — not
+    this template. Do NOT add `| escape`, `| strip_html`, or any other
+    filter here in an attempt to defend against hostile content.
+
+  Analytics:
+    - data-faq-id is derived from `item.question | handleize` so analytics
+      keys stay stable across reorders, draft→live promotes, and re-runs of
+      the playbook. Renaming a question is treated as a different FAQ.
+      Identical questions on the same product collide on the dedup key —
+      `data-index` still distinguishes them in the event payload.
+    - data-faq-id and data-faq-category attributes are emitted per <details>
+      so the runtime JS can fire faqs:open / faqs:close / faqs:ask events.
+      See packages/snippet-library/docs/faqs.analytics.md.
+{%- endcomment -%}
+
+{% stylesheet %}
+/* PDP FAQs (f4qpdp01) */
+
+.sai-f4qpdp01 {
+  --sai-f4qpdp01-gap: var(--sai-size-5);
+  --sai-f4qpdp01-max-width: 64rem;
+  --sai-f4qpdp01-divider: rgba(0, 0, 0, 0.12);
+  --sai-f4qpdp01-divider-strong: rgba(0, 0, 0, 0.22);
+  --sai-f4qpdp01-surface: rgba(0, 0, 0, 0.04);
+  --sai-f4qpdp01-surface-hover: rgba(0, 0, 0, 0.06);
+  --sai-f4qpdp01-focus-ring: rgba(0, 0, 0, 0.08);
+  --sai-f4qpdp01-spectral-1: #8b5cf6;
+  --sai-f4qpdp01-spectral-2: #3b82f6;
+  --sai-f4qpdp01-spectral-3: #14b8a6;
+  --sai-f4qpdp01-spectral-4: #22c55e;
+  --sai-f4qpdp01-spectral-5: #f59e0b;
+  --sai-f4qpdp01-spectral-6: #ef4444;
+
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  max-inline-size: var(--sai-f4qpdp01-max-width);
+  margin-inline: auto;
+  margin-block: var(--sai-size-7);
+  padding-inline: var(--sai-size-4);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--sai-color-fg);
+}
+
+.sai-f4qpdp01__container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-f4qpdp01-gap);
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+.sai-f4qpdp01__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+}
+
+.sai-f4qpdp01__heading {
+  margin: 0;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.75rem;
+  line-height: 1.3;
+  color: var(--sai-color-fg);
+}
+
+.sai-f4qpdp01__subheading {
+  margin: 0;
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  color: var(--sai-color-fg);
+  opacity: 0.7;
+}
+
+/* ── Accordion ─────────────────────────────────────────────────────────────── */
+
+.sai-f4qpdp01__accordion {
+  display: flex;
+  flex-direction: column;
+  border-block-start: 1px solid var(--sai-f4qpdp01-divider);
+}
+
+.sai-f4qpdp01__item {
+  border-block-end: 1px solid var(--sai-f4qpdp01-divider);
+}
+
+.sai-f4qpdp01__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sai-size-4);
+  padding: var(--sai-size-5) var(--sai-size-2);
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 1.1875rem;
+  line-height: 1.4;
+  color: var(--sai-color-fg);
+}
+
+.sai-f4qpdp01__summary::-webkit-details-marker,
+.sai-f4qpdp01__summary::marker {
+  display: none;
+  content: "";
+}
+
+.sai-f4qpdp01__summary:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+  border-radius: var(--sai-radius-sm);
+}
+
+.sai-f4qpdp01__question {
+  flex: 1;
+}
+
+.sai-f4qpdp01__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  opacity: 0.6;
+  transition: transform var(--sai-duration-2) var(--sai-ease-out-1), opacity var(--sai-duration-1)
+    var(--sai-ease-out-1);
+}
+
+.sai-f4qpdp01__chevron svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/* (The `[open]` chevron rotation rule is defined alongside the
+   ::details-content block above — no second rule needed here.) */
+
+/* Pure-CSS open/close animation via the spec-defined ::details-content
+   pseudo-element (Interop 2024; Chrome 131+, Safari 18.2+, Firefox 134+).
+   `interpolate-size: allow-keywords` lets `block-size` transition between
+   0 and `auto`. `content-visibility: visible/hidden` flips at endpoints
+   via `transition-behavior: allow-discrete` so layout/paint are skipped
+   while collapsed but the transition still runs.
+   No JS, no extra wrapper element. Falls back to instant toggle on
+   browsers that don't support ::details-content. */
+.sai-f4qpdp01__item {
+  /* biome-ignore lint/correctness/noUnknownProperty: interpolate-size is
+     a 2024 CSS spec property that biome's stylesheet validator doesn't
+     yet recognize. Required for transitioning block-size: 0 ↔ auto. */
+  interpolate-size: allow-keywords;
+}
+
+.sai-f4qpdp01__item::details-content {
+  block-size: 0;
+  overflow: clip;
+  opacity: 0;
+  transition: content-visibility var(--sai-duration-3) allow-discrete, block-size
+    var(--sai-duration-3) var(--sai-ease-out-1), opacity var(--sai-duration-3) var(--sai-ease-out-1);
+}
+
+.sai-f4qpdp01__item[open]::details-content {
+  block-size: auto;
+  opacity: 1;
+}
+
+.sai-f4qpdp01__item[open] .sai-f4qpdp01__chevron {
+  transform: rotate(180deg);
+  opacity: 1;
+}
+
+.sai-f4qpdp01__answer {
+  padding: 0 var(--sai-size-2) var(--sai-size-5) var(--sai-size-2);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--sai-color-fg);
+  opacity: 0.8;
+}
+
+.sai-f4qpdp01__answer > :first-child {
+  margin-block-start: 0;
+}
+.sai-f4qpdp01__answer > :last-child {
+  margin-block-end: 0;
+}
+
+/* ── Ask block ─────────────────────────────────────────────────────────────── */
+
+.sai-f4qpdp01__ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-4);
+  padding: var(--sai-size-5);
+  border: 1px solid var(--sai-f4qpdp01-divider);
+  border-radius: var(--sai-radius-lg);
+  background: var(--sai-f4qpdp01-surface);
+}
+
+.sai-f4qpdp01__ask-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-3);
+}
+
+.sai-f4qpdp01__sparkles {
+  display: inline-flex;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  color: var(--sai-color-fg);
+}
+
+.sai-f4qpdp01__sparkles svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.sai-f4qpdp01__qa-heading {
+  margin: 0;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.75rem;
+  line-height: 1.3;
+  color: var(--sai-color-fg);
+}
+
+@property --sai-f4qpdp01-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes sai-f4qpdp01-spectral {
+  from {
+    --sai-f4qpdp01-angle: 0deg;
+  }
+  to {
+    --sai-f4qpdp01-angle: 360deg;
+  }
+}
+
+.sai-f4qpdp01__form {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-2);
+  padding: var(--sai-size-2) var(--sai-size-2) var(--sai-size-2) var(--sai-size-5);
+  border: 1px solid var(--sai-f4qpdp01-divider-strong);
+  border-radius: var(--sai-radius-round);
+  background: var(--sai-color-bg);
+  transition: border-color var(--sai-duration-1) var(--sai-ease-out-1), box-shadow
+    var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-f4qpdp01__form::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: conic-gradient(
+    from var(--sai-f4qpdp01-angle),
+    var(--sai-f4qpdp01-spectral-1) 0deg,
+    var(--sai-f4qpdp01-spectral-2) 15deg,
+    var(--sai-f4qpdp01-spectral-3) 30deg,
+    var(--sai-f4qpdp01-spectral-4) 45deg,
+    var(--sai-f4qpdp01-spectral-5) 60deg,
+    var(--sai-f4qpdp01-spectral-6) 75deg,
+    transparent 90deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: sai-f4qpdp01-spectral 3s linear infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.sai-f4qpdp01__form:focus-within {
+  outline: 0;
+  border-color: var(--sai-color-fg);
+  box-shadow: 0 0 0 3px var(--sai-f4qpdp01-focus-ring);
+}
+
+.sai-f4qpdp01__form:focus-within::before {
+  padding: 2.5px;
+  inset: -2.5px;
+}
+
+.sai-f4qpdp01 .sai-f4qpdp01__input {
+  flex: 1;
+  box-sizing: border-box;
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  background-color: transparent;
+  border-color: transparent;
+  padding: 0;
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  color: var(--sai-color-fg);
+}
+
+.sai-f4qpdp01__input::placeholder {
+  color: var(--sai-color-fg);
+  opacity: 0.5;
+}
+
+.sai-f4qpdp01 .sai-f4qpdp01__input:focus,
+.sai-f4qpdp01 .sai-f4qpdp01__input:focus-visible {
+  outline: 0;
+  box-shadow: none;
+  border: 0;
+  background-color: transparent;
+}
+
+.sai-f4qpdp01 .sai-f4qpdp01__send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  border: 0;
+  border-radius: var(--sai-radius-round);
+  cursor: pointer;
+  background: var(--sai-color-primary);
+  background-color: var(--sai-color-primary);
+  color: var(--sai-color-primary-fg);
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1), transform var(--sai-duration-1)
+    var(--sai-ease-out-1);
+}
+
+.sai-f4qpdp01__send svg {
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  color: inherit;
+}
+
+.sai-f4qpdp01__send:hover {
+  opacity: 0.88;
+}
+.sai-f4qpdp01__send:active {
+  transform: scale(0.96);
+}
+
+.sai-f4qpdp01 .sai-f4qpdp01__send[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: var(--sai-color-primary);
+  background-color: var(--sai-color-primary);
+  color: var(--sai-color-primary-fg);
+}
+
+.sai-f4qpdp01 .sai-f4qpdp01__input[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent;
+  background-color: transparent;
+  color: var(--sai-color-fg);
+  -webkit-text-fill-color: var(--sai-color-fg);
+}
+
+/* ── Exchange (single Q+A turn — replaces on each new submit) ──────────────── */
+
+.sai-f4qpdp01__exchange {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+}
+
+.sai-f4qpdp01__exchange-question {
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--sai-color-fg);
+  opacity: 0.75;
+}
+
+.sai-f4qpdp01__exchange-answer {
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--sai-color-fg);
+}
+
+.sai-f4qpdp01__exchange-answer > :first-child {
+  margin-block-start: 0;
+}
+.sai-f4qpdp01__exchange-answer > :last-child {
+  margin-block-end: 0;
+}
+
+.sai-f4qpdp01__feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-block-start: 12px;
+  padding-block-start: 10px;
+  border-block-start: 1px solid var(--sai-f4qpdp01-divider);
+  font-family: var(--sai-font-body);
+}
+.sai-f4qpdp01__feedback-label {
+  font-size: 0.8125rem;
+  color: color-mix(in srgb, var(--sai-color-fg) 55%, transparent);
+}
+.sai-f4qpdp01__feedback-btn {
+  appearance: none;
+  cursor: pointer;
+  border: 1px solid var(--sai-f4qpdp01-divider-strong);
+  background: transparent;
+  color: color-mix(in srgb, var(--sai-color-fg) 85%, transparent);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  line-height: 1;
+  padding: 6px 14px;
+  border-radius: 999px;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+.sai-f4qpdp01__feedback-btn:hover {
+  border-color: var(--sai-f4qpdp01-divider-strong);
+}
+.sai-f4qpdp01__feedback-btn--active {
+  border-color: var(--sai-color-primary);
+  color: var(--sai-color-primary);
+}
+.sai-f4qpdp01__feedback[data-voted] .sai-f4qpdp01__feedback-btn:not(.sai-f4qpdp01__feedback-btn--active) {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Shimmer skeleton — two lines while waiting for the response. */
+.sai-f4qpdp01__shimmer {
+  display: block;
+}
+
+/* `:empty` qualifier overrides theme resets that hide empty divs
+   (e.g. `div:empty { display: none }` in many Shopify themes). The
+   shimmer divs intentionally have no content. */
+.sai-f4qpdp01__shimmer-line,
+.sai-f4qpdp01__shimmer-line:empty {
+  display: block;
+  box-sizing: border-box;
+  block-size: 1rem;
+  min-block-size: 1rem;
+  margin-block-end: var(--sai-size-2);
+  border-radius: var(--sai-radius-sm);
+  background: var(--sai-f4qpdp01-divider-strong);
+  animation: sai-f4qpdp01-shimmer 1.2s ease-in-out infinite;
+}
+
+.sai-f4qpdp01__shimmer-line:last-child {
+  margin-block-end: 0;
+}
+
+.sai-f4qpdp01__shimmer-line:nth-child(1) {
+  inline-size: 80%;
+}
+.sai-f4qpdp01__shimmer-line:nth-child(2) {
+  inline-size: 60%;
+}
+
+@keyframes sai-f4qpdp01-shimmer {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Error state with optional retry. */
+.sai-f4qpdp01__exchange-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sai-size-3);
+  font-family: var(--sai-font-body);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--sai-color-error);
+}
+
+.sai-f4qpdp01__retry {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sai-size-1);
+  border: 1px solid var(--sai-color-error);
+  border-radius: var(--sai-radius-md);
+  padding: var(--sai-size-1) var(--sai-size-3);
+  cursor: pointer;
+  background: transparent;
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--sai-color-error);
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-f4qpdp01__retry:hover {
+  background: var(--sai-f4qpdp01-surface-hover);
+}
+
+/* Follow-up suggestion chips, rendered under the success state. */
+.sai-f4qpdp01__followups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sai-size-2);
+}
+
+.sai-f4qpdp01__followup {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--sai-f4qpdp01-divider);
+  border-radius: var(--sai-radius-md);
+  padding: var(--sai-size-2) var(--sai-size-4);
+  cursor: pointer;
+  background: var(--sai-color-bg);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--sai-color-fg);
+  text-align: left;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1), border-color
+    var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-f4qpdp01__followup:hover {
+  background: var(--sai-f4qpdp01-surface-hover);
+  border-color: var(--sai-f4qpdp01-divider-strong);
+}
+
+/* ── Footer ────────────────────────────────────────────────────────────────── */
+
+.sai-f4qpdp01__footer {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sai-size-2);
+  font-family: var(--sai-font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--sai-color-fg);
+  opacity: 0.55;
+}
+
+.sai-f4qpdp01__faqs-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-f4qpdp01-gap);
+}
+
+.sai-f4qpdp01__faqs-section[hidden],
+.sai-f4qpdp01__ask[hidden],
+.sai-f4qpdp01__footer[hidden] {
+  display: none;
+}
+
+.sai-f4qpdp01__brand {
+  font-weight: var(--sai-font-body-weight-bold);
+}
+
+.sai-f4qpdp01__divider {
+  opacity: 0.5;
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-f4qpdp01__chevron,
+  .sai-f4qpdp01__form,
+  .sai-f4qpdp01__send,
+  .sai-f4qpdp01__followup,
+  .sai-f4qpdp01__retry {
+    transition: none;
+  }
+  .sai-f4qpdp01__item::details-content {
+    transition: none;
+  }
+  .sai-f4qpdp01__shimmer-line,
+  .sai-f4qpdp01__form::before {
+    animation: none;
+  }
+}
+{% endstylesheet %}
+
+<script src="{{ 'sai-snippet-f4qpdp01.js' | asset_url }}" async></script>
+
+{%- assign content     = variant.content -%}
+{%- assign heading     = content.heading           | default: 'Frequently Asked Questions' -%}
+{%- assign subheading  = content.subheading -%}
+{%- assign qa_heading  = content.qa_heading        | default: 'Questions? Get instant replies!' -%}
+{%- assign placeholder = content.input_placeholder | default: 'Ask anything about this product' -%}
+{%- if content.show_faqs == nil -%}
+  {%- assign show_faqs = true -%}
+{%- else -%}
+  {%- assign show_faqs = content.show_faqs -%}
+{%- endif -%}
+{%- if content.show_qa == nil -%}
+  {%- assign show_qa = true -%}
+{%- else -%}
+  {%- assign show_qa = content.show_qa -%}
+{%- endif -%}
+{%- if content.show_branding == nil -%}
+  {%- assign show_branding = true -%}
+{%- else -%}
+  {%- assign show_branding = content.show_branding -%}
+{%- endif -%}
+{%- comment -%} max_faqs: 0/blank = show all; default caps the list. {%- endcomment -%}
+{%- assign max_faqs = content.max_faqs | default: 6 -%}
+{%- if content.single_open == nil -%}
+  {%- assign single_open = true -%}
+{%- else -%}
+  {%- assign single_open = content.single_open -%}
+{%- endif -%}
+{%- assign items       = entry.content.items -%}
+{%- assign faq_limit = items.size -%}
+{%- if max_faqs > 0 -%}
+  {%- assign faq_limit = max_faqs -%}
+{%- endif -%}
+
+<sai-f4qpdp01
+  class="sai-f4qpdp01"
+  data-product-id="{{ product.id }}"
+  data-product-handle="{{ product.handle }}"
+  data-proxy-base="/apps/spectrum"
+  data-single-open="{{ single_open }}"
+  data-max-faqs="{{ max_faqs }}"
+>
+  <div class="sai-f4qpdp01__container">
+
+    <div class="sai-f4qpdp01__faqs-section" data-faqs-section
+      {%- unless show_faqs %} hidden{%- endunless -%}
+    >
+      <div class="sai-f4qpdp01__header">
+        <h2 class="sai-f4qpdp01__heading">{{ heading }}</h2>
+        <p class="sai-f4qpdp01__subheading"
+          {%- if subheading == blank %} hidden{%- endif -%}
+        >{{ subheading }}</p>
+      </div>
+
+      {%- if items.size > 0 -%}
+        <div class="sai-f4qpdp01__accordion" role="list">
+        {%- for item in items limit: faq_limit -%}
+          <details
+            class="sai-f4qpdp01__item"
+            data-faq-id="{{ item.question | handleize }}"
+            data-faq-category="{{ item.category | default: '' }}"
+            data-index="{{ forloop.index0 }}"
+            role="listitem"
+          >
+            <summary class="sai-f4qpdp01__summary">
+              <span class="sai-f4qpdp01__question">{{ item.question }}</span>
+              <span class="sai-f4qpdp01__chevron" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" focusable="false">
+                  <path d="M3 5L7 9L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+            </summary>
+            <div class="sai-f4qpdp01__answer">{{ item.answerHtml }}</div>
+          </details>
+        {%- endfor -%}
+        </div>
+      {%- endif -%}
+    </div>
+
+    <section class="sai-f4qpdp01__ask" data-spectrum-ai-required
+      {%- unless show_qa %} hidden{%- endunless -%}
+    >
+      <div class="sai-f4qpdp01__ask-header">
+        <span class="sai-f4qpdp01__sparkles" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" focusable="false">
+            <path d="M9 1.5L10.2 5.8L14.5 7L10.2 8.2L9 12.5L7.8 8.2L3.5 7L7.8 5.8L9 1.5Z" fill="currentColor"/>
+            <path d="M14 11L14.5 12.5L16 13L14.5 13.5L14 15L13.5 13.5L12 13L13.5 12.5L14 11Z" fill="currentColor"/>
+          </svg>
+        </span>
+        <h3 class="sai-f4qpdp01__qa-heading">{{ qa_heading }}</h3>
+      </div>
+
+      <form class="sai-f4qpdp01__form" data-action="ask">
+        <input
+          class="sai-f4qpdp01__input"
+          name="question"
+          type="text"
+          maxlength="500"
+          autocomplete="off"
+          placeholder="{{ placeholder | escape }}"
+          aria-label="{{ qa_heading | escape }}"
+          required
+        >
+        <button class="sai-f4qpdp01__send" type="submit" aria-label="Send question">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" focusable="false">
+            <path d="M2 14L14 8L2 2L2 6.5L10 8L2 9.5L2 14Z" fill="currentColor"/>
+          </svg>
+        </button>
+      </form>
+
+      <div class="sai-f4qpdp01__exchange" data-slot="exchange" role="status" aria-live="polite" hidden></div>
+    </section>
+
+    <footer class="sai-f4qpdp01__footer" data-branding
+      {%- unless show_branding %} hidden{%- endunless -%}
+    >
+      <span class="sai-f4qpdp01__brand">Powered by Spectrum AI</span>
+      <span class="sai-f4qpdp01__divider" aria-hidden="true">|</span>
+      <span class="sai-f4qpdp01__disclaimer">This answer is AI-generated. Please double check important information.</span>
+    </footer>
+
+  </div>
+</sai-f4qpdp01>
