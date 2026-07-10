@@ -236,33 +236,16 @@
                     "width": 20
                   },
                   "blocks": {
-                    "text_description": {
-                      "type": "text",
+                    "desc_snippet": {
+                      "type": "custom-liquid",
                       "settings": {
-                        "text": "{{ closest.product.description }}",
-                        "width": "100%",
-                        "max_width": "normal",
-                        "alignment": "left",
-                        "type_preset": "rte",
-                        "font": "var(--font-primary--family)",
-                        "font_size": "",
-                        "line_height": "normal",
-                        "letter_spacing": "normal",
-                        "case": "none",
-                        "wrap": "pretty",
-                        "background": false,
-                        "background_color": "#00000026",
-                        "corner_radius": 0,
-                        "padding-block-start": 0,
-                        "padding-block-end": 0,
-                        "padding-inline-start": 0,
-                        "padding-inline-end": 0
+                        "custom_liquid": "{% comment %} Product description accordion: renders the Spectrum long_description snippet, plus chrome overrides scoped via :has() to only this accordion (drop the first-row top divider, taller/heavier summary header). {% endcomment %}<style>.accordion:has(.sai-pd-accordion) accordion-custom:first-child .details{border-block-start:none}.accordion:has(.sai-pd-accordion) .details__header{font-weight:600;min-height:64px;padding-block:14px}</style><div class=\"sai-pd-accordion\">{% render '_sai-z5gf9fqyc70mzxlhcssoskgq', sai_state: 'draft' %}</div>"
                       },
                       "blocks": {}
                     }
                   },
                   "block_order": [
-                    "text_description"
+                    "desc_snippet"
                   ]
                 }
               },
@@ -436,17 +419,12 @@
         "padding-block-end": 48
       }
     },
-    "sai_section_v2dbks8d": {
-      "type": "sai-section-v2dbks8d",
-      "settings": {}
-    },
     "sai_section_kqkrqtcj": {
       "type": "sai-section-kqkrqtcj",
       "settings": {}
     }
   },
   "order": [
-    "sai_section_v2dbks8d",
     "main",
     "sai_section_kqkrqtcj",
     "product_recommendations_qggXJq"
