@@ -1,0 +1,2330 @@
+{% doc %}
+  Virtual Try-On — PDP call-to-action that opens an AI-powered garment try-on.
+
+  This file is the SSR body only. The platform-generated wrapper supplies the
+  outer container `<div>` (the visibility gate, the `data-spectrum-*`
+  attributes). The body renders a server-side CTA button for LCP and a JSON
+  data block; the modal flow is built client-side by the snippet's JS asset.
+
+  @param {string} mutation_handle - Mutation handle for DOM scoping (infrastructure).
+  @param {string} experience_handle - Experience handle for attribution (infrastructure).
+  @param {object} variant - Resolved snippet-instance variant; merchant-edited
+                            props live on `variant.content`.
+  @param {object} mo - spectrum_snippet_instance metaobject drop.
+  @param {object} entry - Resolved default slot entry from spectrum.fbt_<state>;
+                          `entry.content.recommendations` is the array of
+                          product handles offered as try-with companions.
+
+  variant.content fields (presentation only):
+    - button_text            {string}  CTA label
+    - button_style           {string}  "primary" | "secondary" | "outline"
+    - button_icon            {boolean} show the camera glyph before the label
+    - daily_generation_limit {number}  per-shopper daily generation cap
+    - consent_text           {string}  consent copy shown before photo upload — carries the biometric (face) data disclosure and the third-party AI processor; the engineering default needs legal sign-off before live biometric collection
+    - disclaimer_text        {string}  AI-generated-image disclaimer copy (incl. that the shopper's exact facial features may not be reproduced)
+    - show_branding          {boolean} show the Spectrum watermark on the result image (internal)
+
+  @example
+  {% render '_sai-snippet-o1uear1c',
+    variant: variant,
+    mo: mo,
+    entry: entry,
+    mutation_handle: 'mut-o1uear1cabcd1234',
+    experience_handle: 'spring-fashion'
+  %}
+{% enddoc %}
+
+{%- comment -%}
+  PDP-only: every render path is gated on the Shopify `product` global. Off a
+  PDP `product` is nil and this snippet emits nothing — the CTA, the JSON data
+  block, and the asset `<script>` are all skipped. The fail-closed visibility
+  gate on the wrapper means a no-op render collapses cleanly.
+
+  JSON data block contract: every interpolated value is piped through `| json`.
+  `| json` unicode-escapes `<`, `>`, and line separators, so merchant- and
+  shopper-authored strings (product titles, options) cannot terminate the
+  surrounding <script> element. Never `| escape` inside a JSON <script> block —
+  HTML entities are not decoded inside <script> raw-text, which breaks the
+  client-side JSON.parse.
+
+  Nil-tolerant metafield reads: a nil metafield value piped through `| json`
+  emits the literal `null`, so the data block is always valid JSON regardless
+  of whether the FBT recommendations metafield or the saved customer photo
+  exist. The JS treats `null` as "feature unavailable".
+{%- endcomment -%}
+
+{% stylesheet %}
+/* Virtual Try-On (o1uear1c) */
+
+.sai-o1uear1c {
+  display: block;
+  box-sizing: border-box;
+  margin-block: var(--sai-size-4);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  color: var(--sai-color-fg);
+}
+
+.sai-o1uear1c__button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sai-size-2);
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-block-size: 3.5rem;
+  padding: var(--sai-size-3) var(--sai-size-5);
+  border: 1px solid transparent;
+  border-radius: var(--sai-radius-md);
+  /* Clip the moving sheen to the button's rounded box. The attract-ring is an
+     outset box-shadow, which overflow does not clip, so the pulse still shows. */
+  overflow: hidden;
+  isolation: isolate;
+  cursor: pointer;
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 1rem;
+  line-height: 1.4;
+  text-align: center;
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1), transform
+    var(--sai-duration-1) var(--sai-ease-out-1), background-color var(--sai-duration-1)
+    var(--sai-ease-out-1);
+}
+
+/* Style modifiers map onto theme color tokens — no hardcoded palette. */
+.sai-o1uear1c__button--primary {
+  background-color: var(--sai-color-primary);
+  border-color: var(--sai-color-primary);
+  color: var(--sai-color-primary-fg);
+}
+
+.sai-o1uear1c__button--secondary {
+  background-color: var(--sai-color-bg);
+  border-color: var(--sai-color-fg);
+  color: var(--sai-color-fg);
+}
+
+.sai-o1uear1c__button--outline {
+  background-color: transparent;
+  border-color: var(--sai-color-fg);
+  color: var(--sai-color-fg);
+}
+
+@media (hover: hover) {
+  .sai-o1uear1c__button:hover {
+    opacity: 0.88;
+  }
+}
+
+.sai-o1uear1c__button:active {
+  transform: scale(0.99);
+}
+
+.sai-o1uear1c__button:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+.sai-o1uear1c__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+}
+
+.sai-o1uear1c__icon svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/* Expressive treatment for the filled primary CTA only: a periodic light sheen
+   and an attract-ring pulse on first paint. Both are built from the theme's
+   own --sai-color-primary (the sheen is a neutral white-alpha gradient; the
+   ring is a primary-derived shadow via color-mix) so the button keeps the
+   merchant's palette — no hardcoded accent. Outline/secondary stay calm. */
+.sai-o1uear1c__shine {
+  position: absolute;
+  inset-block: 0;
+  inline-size: 34%;
+  inset-inline-start: 0;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgb(255 255 255 / 0.42),
+    transparent
+  );
+  pointer-events: none;
+  z-index: 0;
+  transform: translateX(-180%) skewX(-18deg);
+  animation: sai-o1uear1c-shine 3.6s ease-in-out infinite;
+}
+
+.sai-o1uear1c__button--primary {
+  animation: sai-o1uear1c-attract 2.4s var(--sai-ease-out-1) 3;
+}
+
+/* The label/icon sit above the sheen. */
+.sai-o1uear1c__icon,
+.sai-o1uear1c__label {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes sai-o1uear1c-shine {
+  0%,
+  8% {
+    transform: translateX(-180%) skewX(-18deg);
+  }
+  48%,
+  100% {
+    transform: translateX(320%) skewX(-18deg);
+  }
+}
+
+@keyframes sai-o1uear1c-attract {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--sai-color-primary) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 12px color-mix(in srgb, var(--sai-color-primary) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--sai-color-primary) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-o1uear1c__button {
+    transition: none;
+  }
+  .sai-o1uear1c__button--primary {
+    animation: none;
+  }
+  .sai-o1uear1c__shine {
+    display: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Modal — built and appended to <body> by the JS asset on first open.
+   A native <dialog> is used so the modal escapes theme overflow/transform
+   clipping (top layer), traps focus, closes on Esc, and gets ::backdrop for
+   free. These rules live on <body>-level nodes, so they are intentionally
+   not nested under .sai-o1uear1c — but every class still carries the
+   sai-o1uear1c__ prefix, so the selectors stay snippet-scoped.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.sai-o1uear1c__dialog {
+  box-sizing: border-box;
+  /* Design role-colours mapped onto the merchant's theme tokens. The modal
+     keeps the studio look on any storefront by deriving its ink/line/accent
+     ramp from --sai-color-fg / --sai-color-primary rather than hardcoding a
+     palette. */
+  --o-ink: var(--sai-color-fg);
+  --o-ink-2: color-mix(in srgb, var(--sai-color-fg) 68%, transparent);
+  --o-ink-3: color-mix(in srgb, var(--sai-color-fg) 46%, transparent);
+  --o-line: color-mix(in srgb, var(--sai-color-fg) 14%, transparent);
+  --o-line-2: color-mix(in srgb, var(--sai-color-fg) 8%, transparent);
+  --o-accent: var(--sai-color-primary);
+  --o-accent-soft: color-mix(in srgb, var(--o-accent) 12%, var(--sai-color-bg));
+  --o-on-stage: #ffffff;
+  /* ONE locked footprint for the entire flow. Consent → photo → processing →
+     result all share the same frame, so the modal never resizes as the shopper
+     advances — only the content inside it changes. Sized in px (capped to the
+     viewport) so it stays generously sized on themes that scale rem from a
+     small root font-size. */
+  inline-size: min(960px, calc(100vw - 24px));
+  block-size: min(680px, calc(100dvh - 24px));
+  margin: auto;
+  padding: 0;
+  border: none;
+  border-radius: 20px;
+  background-color: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  overflow: hidden;
+}
+
+.sai-o1uear1c__dialog::backdrop {
+  background-color: rgb(0 0 0 / 0.55);
+}
+
+/* Entrance: the frame rises and fades in as it opens. Native <dialog> applies
+   [open] the moment showModal() runs, so the animation plays on first paint. */
+.sai-o1uear1c__dialog[open] {
+  animation: sai-o1uear1c-fade-up 0.25s var(--sai-ease-out-1);
+}
+
+@keyframes sai-o1uear1c-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-o1uear1c__dialog[open] {
+    animation: none;
+  }
+}
+
+/* Every element inside the modal uses border-box sizing so the snippet's
+   px/rem paddings land predictably. The snippet sets the properties it cares
+   about explicitly on its own scoped classes. */
+.sai-o1uear1c__dialog *,
+.sai-o1uear1c__dialog *::before,
+.sai-o1uear1c__dialog *::after {
+  box-sizing: border-box;
+}
+
+.sai-o1uear1c__shell {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+}
+
+/* Input steps (consent / colour / photo / processing) center their content
+   inside the fixed-width modal so a short form doesn't stretch edge-to-edge.
+   The header stays full-width (close pinned right). The two-pane looks result
+   (--looks) and the full-bleed single-image result (--result) opt out — they
+   fill the whole width. */
+.sai-o1uear1c__dialog:not(.sai-o1uear1c__dialog--looks):not(.sai-o1uear1c__dialog--result)
+  .sai-o1uear1c__body,
+.sai-o1uear1c__dialog:not(.sai-o1uear1c__dialog--looks):not(.sai-o1uear1c__dialog--result)
+  .sai-o1uear1c__footer {
+  inline-size: 100%;
+  max-inline-size: 34rem;
+  margin-inline: auto;
+}
+
+.sai-o1uear1c__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sai-size-3);
+  padding: var(--sai-size-4) var(--sai-size-5);
+  border-block-end: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.sai-o1uear1c__title {
+  margin: 0;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.0625rem;
+  line-height: 1.3;
+}
+
+.sai-o1uear1c__close {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--sai-radius-round);
+  background-color: transparent;
+  color: currentColor;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .sai-o1uear1c__close:hover {
+    background-color: color-mix(in srgb, currentColor 10%, transparent);
+  }
+}
+
+.sai-o1uear1c__close:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+.sai-o1uear1c__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  padding: var(--sai-size-5);
+  overflow-y: auto;
+  /* Full-width states (error / rate-limit) center their message instead of
+     pinning it to the top. `safe` keeps tall content top-aligned + scrollable.
+     The two-pane studio body (--looks) overrides this below. */
+  justify-content: safe center;
+}
+
+.sai-o1uear1c__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sai-size-3);
+  padding: var(--sai-size-4) var(--sai-size-5);
+  border-block-start: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.sai-o1uear1c__step-title {
+  margin: 0 0 var(--sai-size-2);
+  font-size: 1rem;
+  font-weight: var(--sai-font-body-weight-bold);
+}
+
+/* Action buttons inside the modal — primary / ghost variants. */
+.sai-o1uear1c__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sai-size-2);
+  min-block-size: 3.25rem;
+  padding: var(--sai-size-2) var(--sai-size-5);
+  border: 1px solid transparent;
+  border-radius: var(--sai-radius-md);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  line-height: 1.3;
+  cursor: pointer;
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+@media (hover: hover) {
+  .sai-o1uear1c__action:not([disabled]):hover {
+    opacity: 0.88;
+  }
+}
+
+.sai-o1uear1c__action:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+.sai-o1uear1c__action[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The `hidden` attribute must beat the `display` declaration in the base
+   rule above. A bare `[hidden]` selector (0,1,0) only ties the
+   `.sai-o1uear1c__action` class, and the later base rule wins the cascade —
+   so the JS-toggled "Try Complete Look" button would stay visible with no
+   FBT items selected. Qualifying the selector with the class lifts it to
+   (0,2,0) so `hidden` reliably wins. */
+.sai-o1uear1c__action[hidden] {
+  display: none;
+}
+
+.sai-o1uear1c__action--primary {
+  background-color: var(--sai-color-primary);
+  border-color: var(--sai-color-primary);
+  color: var(--sai-color-primary-fg);
+  flex: 1 1 auto;
+}
+
+.sai-o1uear1c__action--ghost {
+  background-color: transparent;
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  color: currentColor;
+}
+
+/* Consent step — granular checkboxes. */
+.sai-o1uear1c__consent-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  margin: 0 0 var(--sai-size-4);
+}
+
+.sai-o1uear1c__check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sai-size-3);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.sai-o1uear1c__dialog input[type="checkbox"],
+.sai-o1uear1c__dialog input[type="checkbox"]:hover,
+.sai-o1uear1c__dialog input[type="checkbox"]:checked,
+.sai-o1uear1c__dialog input[type="checkbox"]:checked:hover {
+  -webkit-appearance: checkbox;
+  appearance: auto;
+  flex-shrink: 0;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  margin-block-start: 0.0625rem;
+  accent-color: var(--sai-color-primary);
+  background: none;
+  border: none;
+  box-shadow: none;
+  outline: none;
+  opacity: 1;
+}
+
+/* Photo step. */
+/* The saved-photo step: a short instruction, a composed portrait preview frame
+   (consistent 3:4 like the result hero so any uploaded aspect reads as an
+   intentional preview, not a small floating image), then a centered delete. */
+.sai-o1uear1c__photo-hint {
+  margin: 0 0 var(--sai-size-4);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  text-align: center;
+  color: color-mix(in srgb, currentColor 70%, transparent);
+}
+
+.sai-o1uear1c__photo-frame {
+  inline-size: 100%;
+  max-inline-size: 14rem;
+  aspect-ratio: 3 / 4;
+  margin: 0 auto var(--sai-size-3);
+  border-radius: var(--sai-radius-md);
+  overflow: hidden;
+  background-color: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.sai-o1uear1c__photo-preview {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: contain;
+}
+
+/* Per-family display framing for the result/preview frames. The default crop is
+   the garment 3/4 (full-length); jewellery reframes to a head-and-shoulders
+   neckline and makeup to a square face crop, so a necklace or lip-shade try-on
+   reads at a sensible crop instead of a full-length portrait. The hook is
+   data-vto-family on the dialog, set by the runtime from the resolved try-on
+   family; an absent or 'garment' value matches no rule here and leaves the 3/4
+   default untouched. */
+.sai-o1uear1c__dialog[data-vto-family='jewellery'] .sai-o1uear1c__photo-frame,
+.sai-o1uear1c__dialog[data-vto-family='jewellery'] .sai-o1uear1c__fbt-thumb {
+  aspect-ratio: 4 / 5;
+}
+
+.sai-o1uear1c__dialog[data-vto-family='makeup'] .sai-o1uear1c__photo-frame,
+.sai-o1uear1c__dialog[data-vto-family='makeup'] .sai-o1uear1c__fbt-thumb {
+  aspect-ratio: 1 / 1;
+}
+
+.sai-o1uear1c__dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sai-size-2);
+  padding: var(--sai-size-6) var(--sai-size-4);
+  margin-block-end: var(--sai-size-4);
+  border: 1px dashed color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: var(--sai-radius-md);
+  text-align: center;
+}
+
+.sai-o1uear1c__dropzone-hint {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: color-mix(in srgb, currentColor 65%, transparent);
+}
+
+.sai-o1uear1c__file-input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Processing step. */
+.sai-o1uear1c__processing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sai-size-4);
+  padding: var(--sai-size-7) var(--sai-size-4);
+  text-align: center;
+}
+
+.sai-o1uear1c__processing .sai-spinner {
+  --sai-spinner-size: 2.5rem;
+  --sai-spinner-color: var(--sai-color-primary);
+}
+
+.sai-o1uear1c__processing-text {
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+}
+
+/* Result step. */
+.sai-o1uear1c__result-frame {
+  position: relative;
+  margin-block-end: var(--sai-size-4);
+  border-radius: var(--sai-radius-md);
+  overflow: hidden;
+  background-color: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.sai-o1uear1c__result-image {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+}
+
+.sai-o1uear1c__badge {
+  position: absolute;
+  inset-block-start: var(--sai-size-2);
+  inset-inline-end: var(--sai-size-2);
+  padding: var(--sai-size-1) var(--sai-size-2);
+  border-radius: var(--sai-radius-sm);
+  background-color: rgb(0 0 0 / 0.7);
+  color: #ffffff;
+  font-size: 0.6875rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sai-o1uear1c__watermark {
+  position: absolute;
+  inset-block-end: var(--sai-size-2);
+  inset-inline-start: var(--sai-size-2);
+  display: inline-flex;
+  align-items: center;
+  padding: var(--sai-size-1) var(--sai-size-2);
+  border-radius: var(--sai-radius-sm);
+  background-color: rgb(0 0 0 / 0.55);
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.sai-o1uear1c__watermark-logo {
+  display: block;
+  block-size: 13px;
+  inline-size: auto;
+  fill: currentColor;
+}
+
+/* Two-pane result stage: badge sits top-left (the floating close owns
+   top-right); watermark is a bare serif wordmark bottom-right. */
+.sai-o1uear1c__stage--result .sai-o1uear1c__badge {
+  inset-block-start: 12px;
+  inset-inline: 12px auto;
+  border-radius: 999px;
+  background-color: rgb(0 0 0 / 0.5);
+  backdrop-filter: blur(6px);
+}
+
+.sai-o1uear1c__stage--result .sai-o1uear1c__watermark {
+  inset-block-end: 11px;
+  inset-inline: auto 13px;
+  padding: 0;
+  background-color: transparent;
+  border-radius: 0;
+  font-family: var(--sai-font-heading);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  color: rgb(255 255 255 / 0.88);
+}
+
+.sai-o1uear1c__disclaimer {
+  margin: 0 0 var(--sai-size-4);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: color-mix(in srgb, currentColor 65%, transparent);
+}
+
+/* In-image loading — shown on the try-on image while a filmstrip look change or
+   scene change regenerates, so the rest of the modal stays put. The result
+   frame is position:relative, so this covers exactly the image. A subtle
+   frosted base (::before) dims the previous result; the label pill reads
+   "working" without a spinner. */
+.sai-o1uear1c__result-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-block-end: var(--sai-size-5);
+  overflow: hidden;
+}
+
+.sai-o1uear1c__result-loading::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--sai-color-bg) 32%, transparent);
+  backdrop-filter: blur(1px);
+}
+
+.sai-o1uear1c__result-loading-text {
+  position: relative;
+  z-index: 1;
+  padding: var(--sai-size-2) var(--sai-size-4);
+  border-radius: var(--sai-radius-round);
+  background-color: color-mix(in srgb, var(--sai-color-bg) 88%, transparent);
+  color: var(--sai-color-fg);
+  font-size: 0.8125rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  letter-spacing: 0.01em;
+}
+
+/* Animated trailing dots on the label. */
+.sai-o1uear1c__result-loading-text::after {
+  content: '';
+  animation: sai-o1uear1c-dots 1.4s steps(1) infinite;
+}
+
+@keyframes sai-o1uear1c-dots {
+  0% { content: ''; }
+  25% { content: '.'; }
+  50% { content: '..'; }
+  75% { content: '...'; }
+  100% { content: ''; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-o1uear1c__result-loading-text::after {
+    animation: none;
+  }
+}
+
+/* Result step — full-bleed variant. The result is the only step that drops
+   the header bar: the close floats over the image as a translucent disc and
+   the generated image bleeds to the dialog edges. Scoped to the
+   .sai-o1uear1c__dialog--result modifier (toggled by _setStep) so the
+   consent / colour / photo steps keep their normal header. */
+.sai-o1uear1c__dialog--result .sai-o1uear1c__header {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 2;
+  /* The title is hidden on this step, so the lone close must be pinned right
+     rather than left (the base rule's space-between would send it left). */
+  justify-content: flex-end;
+  border-block-end: none;
+  pointer-events: none;
+}
+
+.sai-o1uear1c__dialog--result .sai-o1uear1c__title {
+  display: none;
+}
+
+/* Floating close — a translucent disc legible over any image. */
+.sai-o1uear1c__dialog--result .sai-o1uear1c__close {
+  pointer-events: auto;
+  background-color: rgb(0 0 0 / 0.45);
+  color: #ffffff;
+}
+
+@media (hover: hover) {
+  .sai-o1uear1c__dialog--result .sai-o1uear1c__close:hover {
+    background-color: rgb(0 0 0 / 0.62);
+  }
+}
+
+/* Image bleeds to the dialog edges; the dialog's own radius + overflow:hidden
+   round the top corners. The pull-up cancels the body's top padding only when
+   the frame is the first child — a transient notice, when present, keeps it. */
+.sai-o1uear1c__dialog--result .sai-o1uear1c__result-frame {
+  margin-inline: calc(-1 * var(--sai-size-5));
+  border-radius: 0;
+}
+
+.sai-o1uear1c__dialog--result .sai-o1uear1c__result-frame:first-child {
+  margin-block-start: calc(-1 * var(--sai-size-5));
+}
+
+/* Keep the AI badge clear of the floating close (both sit top-right). */
+.sai-o1uear1c__dialog--result .sai-o1uear1c__badge {
+  inset-inline: var(--sai-size-2) auto;
+}
+
+/* Result actions share one row evenly rather than wrapping to a stack. */
+.sai-o1uear1c__dialog--result .sai-o1uear1c__footer {
+  flex-wrap: nowrap;
+}
+
+.sai-o1uear1c__dialog--result .sai-o1uear1c__footer .sai-o1uear1c__action {
+  flex: 1 1 0;
+  min-inline-size: 0;
+}
+
+.sai-o1uear1c__section-title {
+  margin: var(--sai-size-5) 0 var(--sai-size-2);
+  font-size: 0.8125rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Scene changer — horizontal thumbnail strip. */
+.sai-o1uear1c__scene-strip {
+  display: flex;
+  gap: var(--sai-size-2);
+  margin: 0;
+  padding: 0 0 var(--sai-size-1);
+  list-style: none;
+  overflow-x: auto;
+}
+
+.sai-o1uear1c__scene {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: var(--sai-size-1);
+  inline-size: 5rem;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: var(--sai-radius-md);
+  background-color: transparent;
+  color: currentColor;
+  font-family: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.sai-o1uear1c__scene[aria-pressed='true'] {
+  border-color: var(--sai-color-primary);
+  box-shadow: inset 0 0 0 1px var(--sai-color-primary);
+}
+
+.sai-o1uear1c__scene:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+.sai-o1uear1c__scene[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.sai-o1uear1c__scene-thumb {
+  aspect-ratio: 1 / 1;
+  inline-size: 100%;
+  object-fit: cover;
+  background-color: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.sai-o1uear1c__scene-name {
+  padding: 0 var(--sai-size-1) var(--sai-size-1);
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  text-align: center;
+}
+
+/* FBT recommendations. */
+.sai-o1uear1c__fbt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: var(--sai-size-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sai-o1uear1c__fbt-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+  padding: var(--sai-size-2);
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: var(--sai-radius-md);
+}
+
+.sai-o1uear1c__fbt-thumb {
+  aspect-ratio: 3 / 4;
+  inline-size: 100%;
+  border-radius: var(--sai-radius-sm);
+  object-fit: cover;
+  background-color: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.sai-o1uear1c__fbt-name {
+  font-size: 0.8125rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  line-height: 1.35;
+}
+
+.sai-o1uear1c__fbt-price {
+  font-size: 0.8125rem;
+  color: color-mix(in srgb, currentColor 75%, transparent);
+}
+
+.sai-o1uear1c__fbt-actions {
+  display: flex;
+  gap: var(--sai-size-2);
+  margin-block-start: auto;
+}
+
+.sai-o1uear1c__fbt-btn {
+  flex: 1 1 0;
+  min-block-size: 2.25rem;
+  padding: var(--sai-size-1) var(--sai-size-2);
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: var(--sai-radius-sm);
+  background-color: transparent;
+  color: currentColor;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .sai-o1uear1c__fbt-btn:hover {
+    background-color: color-mix(in srgb, currentColor 8%, transparent);
+  }
+}
+
+.sai-o1uear1c__fbt-btn:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 1px;
+}
+
+.sai-o1uear1c__fbt-btn[aria-pressed='true'] {
+  background-color: var(--sai-color-primary);
+  border-color: var(--sai-color-primary);
+  color: var(--sai-color-primary-fg);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Editorial-look filmstrip ("Tap to wear") + active look's product list.
+   ───────────────────────────────────────────────────────────────────────── */
+.sai-o1uear1c__looks-strip {
+  display: flex;
+  gap: var(--sai-size-3);
+  margin: 0;
+  padding: 0 0 var(--sai-size-1);
+  list-style: none;
+  overflow-x: auto;
+}
+
+.sai-o1uear1c__look {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: var(--sai-size-2);
+  inline-size: 5.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: currentColor;
+  font-family: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.sai-o1uear1c__look[disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.sai-o1uear1c__look-thumb-wrap {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  inline-size: 100%;
+  border-radius: var(--sai-radius-md);
+  border: 2px solid transparent;
+  background-color: color-mix(in srgb, currentColor 8%, transparent);
+  overflow: hidden;
+}
+
+.sai-o1uear1c__look[aria-pressed='true'] .sai-o1uear1c__look-thumb-wrap {
+  border-color: var(--sai-color-primary);
+  box-shadow: 0 0 0 1px var(--sai-color-primary);
+}
+
+.sai-o1uear1c__look-thumb {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+/* When a look has no styled hero image, the tile is a collage of the look's
+   actual product images — so the tile always matches the items in the look. */
+.sai-o1uear1c__look-collage {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: 1fr;
+  gap: 1px;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.sai-o1uear1c__look-collage-img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+/* An odd last image spans both columns so the grid never leaves a gap. */
+.sai-o1uear1c__look-collage-img:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.sai-o1uear1c__look-count {
+  position: absolute;
+  inset-block-end: var(--sai-size-1);
+  inset-inline-end: var(--sai-size-1);
+  min-inline-size: 1.125rem;
+  padding: 0 0.25rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  font-size: 0.6875rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  line-height: 1.4;
+  text-align: center;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+}
+
+.sai-o1uear1c__look-name {
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: color-mix(in srgb, currentColor 70%, transparent);
+}
+
+.sai-o1uear1c__look[aria-pressed='true'] .sai-o1uear1c__look-name {
+  color: currentColor;
+  font-weight: var(--sai-font-body-weight-bold);
+}
+
+/* Active look's product list — header (eyebrow + heading + piece count) then a
+   row per product with a size picker + add. */
+.sai-o1uear1c__look-head {
+  margin-block-end: var(--sai-size-3);
+}
+
+.sai-o1uear1c__look-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, currentColor 50%, transparent);
+}
+
+.sai-o1uear1c__look-heading {
+  margin-block-start: 0.125rem;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.375rem;
+  line-height: 1.15;
+}
+
+.sai-o1uear1c__look-meta {
+  margin-block-start: 0.25rem;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, currentColor 58%, transparent);
+}
+
+.sai-o1uear1c__lookrow-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sai-o1uear1c__lookrow {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 0;
+  border-block-start: 1px solid var(--o-line-2);
+}
+
+.sai-o1uear1c__lookrow-list .sai-o1uear1c__lookrow:first-child {
+  border-block-start: none;
+  padding-block-start: 0;
+}
+
+.sai-o1uear1c__lookrow-thumb {
+  flex-shrink: 0;
+  inline-size: 54px;
+  block-size: 66px;
+  border-radius: 9px;
+  object-fit: cover;
+  background-color: color-mix(in srgb, var(--sai-color-fg) 8%, transparent);
+}
+
+.sai-o1uear1c__lookrow-info {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.sai-o1uear1c__lookrow-role {
+  font-size: 10px;
+  font-weight: var(--sai-font-body-weight-bold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--o-ink-3);
+}
+
+.sai-o1uear1c__lookrow-name {
+  margin-block-start: 2px;
+  font-size: 14px;
+  font-weight: var(--sai-font-body-weight-bold);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sai-o1uear1c__lookrow-price {
+  margin-block-start: 2px;
+  font-size: 13px;
+  color: var(--o-ink-2);
+}
+
+.sai-o1uear1c__lookrow-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.sai-o1uear1c__lookrow-variant {
+  min-block-size: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--o-line);
+  border-radius: 9px;
+  background-color: var(--sai-color-bg);
+  color: var(--o-ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.sai-o1uear1c__lookrow-variant:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 1px;
+}
+
+.sai-o1uear1c__lookrow-add {
+  flex-shrink: 0;
+  min-block-size: 38px;
+  padding: 0 16px;
+  /* Match the adjacent variant-select's hairline (--o-line) rather than a full
+     --o-ink border, which reads as a heavy near-black box on dark-ink themes. */
+  border: 1px solid var(--o-line);
+  border-radius: 9px;
+  background-color: var(--sai-color-bg);
+  color: var(--o-ink);
+  font-family: inherit;
+  font-size: 13px;
+  /* Match the adjacent variant select's weight (500); bold (700) made the
+     "Add" read heavier/darker than the rest of the row's controls. */
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+@media (hover: hover) {
+  .sai-o1uear1c__lookrow-add:not([disabled]):hover {
+    background-color: var(--o-ink);
+    color: var(--sai-color-bg);
+  }
+}
+
+.sai-o1uear1c__lookrow-add[disabled] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.sai-o1uear1c__lookrow-add:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 1px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Two-pane editorial-look result lightbox. Left (stage): the try-on image +
+   the "Tap to wear" filmstrip. Right (panel): the worn look's products + the
+   add-to-bag action. Stacks to a single column on narrow viewports.
+   ───────────────────────────────────────────────────────────────────────── */
+/* The two-pane layout supplies its own close (in the panel head) + add (in the
+   panel foot), so the shared shell header/footer are hidden. */
+.sai-o1uear1c__dialog--looks .sai-o1uear1c__header,
+.sai-o1uear1c__dialog--looks .sai-o1uear1c__footer {
+  display: none;
+}
+
+.sai-o1uear1c__dialog--looks .sai-o1uear1c__body {
+  display: flex;
+  min-block-size: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.sai-o1uear1c__lightbox {
+  position: relative;
+  display: flex;
+  inline-size: 100%;
+  block-size: 100%;
+  min-block-size: 0;
+}
+
+/* Left pane ("stage"). Consent/photo/processing fill it edge-to-edge with a
+   single visual; the result turns it into a padded column (hero + filmstrip).
+   Fixed width so the flexible panel carries the richer controls. */
+.sai-o1uear1c__stage {
+  position: relative;
+  flex: none;
+  inline-size: 420px;
+  min-inline-size: 0;
+  overflow: hidden;
+  background-color: var(--o-accent-soft);
+}
+
+.sai-o1uear1c__stage--result {
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  background-color: color-mix(in srgb, var(--sai-color-fg) 6%, var(--sai-color-bg));
+}
+
+/* Result hero fills the padded stage above the filmstrip (object-fit cover
+   keeps any aspect from distorting). */
+.sai-o1uear1c__stage--result .sai-o1uear1c__result-frame {
+  flex: 1 1 auto;
+  min-block-size: 0;
+  inline-size: 100%;
+  margin: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 6px 16px -14px rgb(0 0 0 / 0.35);
+}
+
+.sai-o1uear1c__stage--result .sai-o1uear1c__result-image {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+/* Makeup before/after — the shopper's own photo beside the generated result so
+   the lip-shade change is easy to judge. A static side-by-side (no slider or
+   toggle) is the robust default: no interaction state, and each half cover-crops
+   to the same frame the makeup family already faces. The frame's AI badge sits
+   top-start and the watermark bottom-end, so the pane labels sit bottom-centre to
+   stay clear of both. */
+.sai-o1uear1c__ba {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.sai-o1uear1c__ba-pane {
+  position: relative;
+  margin: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+}
+
+/* Hairline seam so the two halves read as a deliberate comparison. */
+.sai-o1uear1c__ba-pane + .sai-o1uear1c__ba-pane {
+  border-inline-start: 1px solid rgb(255 255 255 / 0.5);
+}
+
+.sai-o1uear1c__ba-img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.sai-o1uear1c__ba-label {
+  position: absolute;
+  inset-block-end: 10px;
+  inset-inline: 0;
+  margin-inline: auto;
+  inline-size: fit-content;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background-color: rgb(0 0 0 / 0.55);
+  backdrop-filter: blur(6px);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: var(--sai-font-body-weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Full-bleed stage visual for consent / photo / processing. */
+.sai-o1uear1c__stage-card {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background-color: var(--o-accent-soft);
+}
+
+.sai-o1uear1c__stage-img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+/* Aspirational/empty placeholder fill when no styled image is available. */
+.sai-o1uear1c__stage-card--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-image: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--o-accent) 30%, var(--sai-color-bg)),
+    color-mix(in srgb, var(--o-accent) 10%, var(--sai-color-bg))
+  );
+  color: color-mix(in srgb, var(--o-accent) 55%, transparent);
+}
+
+/* Italic editorial caption along the bottom of a stage visual. */
+.sai-o1uear1c__stage-cap {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  padding: 48px 26px 26px;
+  background-image: linear-gradient(to top, rgb(0 0 0 / 0.62), transparent);
+  color: var(--o-on-stage);
+  font-family: var(--sai-font-heading);
+  font-style: italic;
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 26px;
+  line-height: 1.2;
+  max-inline-size: 13ch;
+}
+
+/* Processing — the shopper's photo dimmed under a soft "developing" pulse, so it
+   reads as the AI working on THEIR image. */
+.sai-o1uear1c__stage-img--dim {
+  filter: brightness(0.62) saturate(0.85);
+}
+
+.sai-o1uear1c__scan {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sai-o1uear1c__scan::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--o-accent) 10%, transparent);
+  mix-blend-mode: screen;
+  animation: sai-o1uear1c-develop 3.4s ease-in-out infinite alternate;
+}
+
+.sai-o1uear1c__scan-label {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  padding: 22px;
+  background-image: linear-gradient(0deg, rgb(0 0 0 / 0.55), transparent);
+  color: var(--o-on-stage);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: var(--sai-font-body-weight-bold);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+@keyframes sai-o1uear1c-develop {
+  0% {
+    clip-path: inset(0 0 100% 0);
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-o1uear1c__scan::after {
+    animation: none;
+  }
+}
+
+/* Calm, deliberate generation status in the panel — a single advancing line
+   with a pulsing dot. Replaces a big spinner + jumpy centered messages, which
+   read as placeholder rather than product. */
+.sai-o1uear1c__gen-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-2);
+  margin: 0 0 var(--sai-size-3);
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  line-height: 1.3;
+}
+
+.sai-o1uear1c__gen-dot {
+  flex-shrink: 0;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--sai-color-primary);
+  animation: sai-o1uear1c-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes sai-o1uear1c-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.65);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-o1uear1c__gen-dot {
+    animation: none;
+  }
+}
+
+/* Right pane ("panel") — the flexible controls column. */
+.sai-o1uear1c__panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+  background-color: var(--sai-color-bg);
+  /* Subtle seam between the stage and the controls. Desktop only — the mobile
+     query stacks the panes and clears this (a stacked left border reads as a
+     stray vertical line). */
+  border-inline-start: 1px solid var(--o-line);
+}
+
+/* Step-dots header (consent / photo / processing). */
+.sai-o1uear1c__panel-head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 26px 30px 0;
+}
+
+.sai-o1uear1c__step-dot {
+  inline-size: 7px;
+  block-size: 7px;
+  border-radius: 999px;
+  background-color: var(--o-line);
+  transition: inline-size 0.3s ease, background-color 0.3s ease;
+}
+
+.sai-o1uear1c__step-dot--done {
+  background-color: var(--o-accent);
+}
+
+.sai-o1uear1c__step-dot--active {
+  inline-size: 20px;
+  background-color: var(--o-accent);
+}
+
+.sai-o1uear1c__step-label {
+  margin-inline-start: 6px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--o-ink-3);
+}
+
+.sai-o1uear1c__panel-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  padding: 18px 22px 22px;
+  overflow-y: auto;
+  /* Short steps (uploading, photo-ready, processing) center in the tall fixed
+     frame so they don't strand at the top over a void. `safe` falls back to
+     top-aligned when content is taller than the panel (consent), so nothing
+     gets clipped above the scroll. */
+  justify-content: safe center;
+}
+
+.sai-o1uear1c__panel-body--result {
+  padding-block-start: 28px;
+  /* The result panel has real content (eyebrow, name, product list); keep it
+     top-aligned. Only the sparse input steps use the centering on the base
+     .sai-o1uear1c__panel-body rule. */
+  justify-content: flex-start;
+}
+
+.sai-o1uear1c__panel-foot {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 22px;
+  /* Same hairline as the stage/panel divider so the modal's separators read
+     as one system. */
+  border-block-start: 1px solid var(--o-line);
+  background-color: var(--sai-color-bg);
+}
+
+.sai-o1uear1c__panel-foot--row {
+  flex-direction: row;
+  gap: 11px;
+}
+
+.sai-o1uear1c__panel-foot .sai-o1uear1c__action {
+  inline-size: 100%;
+}
+
+.sai-o1uear1c__panel-foot--row .sai-o1uear1c__action {
+  inline-size: auto;
+}
+
+/* Floating circular close — one control over the whole frame, every step. */
+.sai-o1uear1c__float-close {
+  position: absolute;
+  inset-block-start: 16px;
+  inset-inline-end: 16px;
+  z-index: 20;
+  inline-size: 36px;
+  block-size: 36px;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--o-line);
+  background-color: color-mix(in srgb, var(--sai-color-bg) 90%, transparent);
+  color: var(--o-ink);
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+
+@media (hover: hover) {
+  .sai-o1uear1c__float-close:hover {
+    background-color: var(--sai-color-bg);
+  }
+}
+
+.sai-o1uear1c__float-close:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+/* Panel headings + lede shared by the input steps. */
+.sai-o1uear1c__panel-h2 {
+  margin: 0 0 12px;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.sai-o1uear1c__panel-lede {
+  margin: 0 0 22px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--o-ink-2);
+  max-inline-size: 42ch;
+}
+
+/* Consent — bordered selectable cards. */
+.sai-o1uear1c__consent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sai-o1uear1c__consent-row {
+  display: flex;
+  gap: 13px;
+  align-items: flex-start;
+  text-align: start;
+  inline-size: 100%;
+  padding: 14px 15px;
+  border-radius: 12px;
+  border: 1px solid var(--o-line);
+  background-color: var(--sai-color-bg);
+  color: var(--o-ink);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.sai-o1uear1c__consent-row[aria-pressed='true'] {
+  border-color: var(--o-accent);
+  background-color: var(--o-accent-soft);
+}
+
+.sai-o1uear1c__consent-row:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+.sai-o1uear1c__consent-box {
+  flex: none;
+  inline-size: 22px;
+  block-size: 22px;
+  margin-block-start: 1px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--o-line);
+  background-color: var(--sai-color-bg);
+  color: var(--sai-color-primary-fg);
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.sai-o1uear1c__consent-row[aria-pressed='true'] .sai-o1uear1c__consent-box {
+  border-color: var(--o-accent);
+  background-color: var(--o-accent);
+}
+
+.sai-o1uear1c__consent-title {
+  display: block;
+  font-size: 14px;
+  font-weight: var(--sai-font-body-weight-bold);
+  color: var(--o-ink);
+}
+
+.sai-o1uear1c__consent-desc {
+  display: block;
+  font-size: 12.5px;
+  color: var(--o-ink-3);
+  margin-block-start: 2px;
+}
+
+.sai-o1uear1c__reassure {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--o-ink-3);
+  text-align: center;
+}
+
+/* Processing panel — progress bar + status stepper. */
+.sai-o1uear1c__proc-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 22px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--o-ink);
+}
+
+.sai-o1uear1c__proc-bar {
+  block-size: 6px;
+  margin-block: 4px 0;
+  border-radius: 999px;
+  /* A soft tint of the theme accent so the track reads as a progress rail, not
+     a hairline divider. */
+  background-color: color-mix(in srgb, var(--o-accent) 16%, var(--sai-color-bg));
+  overflow: hidden;
+}
+
+/* Scoped under the bar (specificity 0,2,0) so it outranks themes whose base
+   CSS hides empty elements — e.g. Dawn/Horizon `div:empty { display:none }`
+   at (0,1,1). The fill is an intentionally-empty styled div; without this the
+   theme blanks it and the bar never appears to move. */
+.sai-o1uear1c__proc-bar .sai-o1uear1c__proc-fill {
+  display: block;
+  block-size: 100%;
+  inline-size: 0;
+  border-radius: 999px;
+  /* Solid accent fill (not a fade) so the filled portion stays high-contrast
+     against the light track on monochrome themes, where a gradient to a lighter
+     tint washes into the track and the bar reads as static. */
+  background-color: var(--o-accent);
+  transition: inline-size 0.25s linear;
+}
+
+.sai-o1uear1c__proc-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  margin-block-start: 24px;
+}
+
+.sai-o1uear1c__proc-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13.5px;
+  color: var(--o-ink-3);
+}
+
+.sai-o1uear1c__proc-step--active {
+  color: var(--o-ink);
+  font-weight: var(--sai-font-body-weight-bold);
+}
+
+.sai-o1uear1c__proc-step--done {
+  color: var(--o-ink);
+}
+
+.sai-o1uear1c__proc-step-dot {
+  flex: none;
+  inline-size: 7px;
+  block-size: 7px;
+  border-radius: 50%;
+  background-color: var(--o-line);
+}
+
+.sai-o1uear1c__proc-step--active .sai-o1uear1c__proc-step-dot {
+  background-color: color-mix(in srgb, var(--o-accent) 65%, white);
+}
+
+.sai-o1uear1c__proc-step--done .sai-o1uear1c__proc-step-dot {
+  background-color: var(--o-accent);
+}
+
+.sai-o1uear1c__proc-foot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--o-ink-3);
+}
+
+/* Result panel — eyebrow + name row + solo hint + custom size select. */
+.sai-o1uear1c__result-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--o-accent);
+  font-weight: var(--sai-font-body-weight-bold);
+  margin-block-end: 6px;
+}
+
+.sai-o1uear1c__result-headrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  /* Clear the floating close (top-right of the frame) so the piece count never
+     sits under it. */
+  padding-inline-end: 40px;
+  margin-block-end: 20px;
+}
+
+.sai-o1uear1c__result-name {
+  margin: 0;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.sai-o1uear1c__result-pieces {
+  font-size: 13px;
+  color: var(--o-ink-3);
+  white-space: nowrap;
+}
+
+.sai-o1uear1c__solo-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-size: 12.5px;
+  color: var(--o-ink-2);
+  background-color: var(--o-accent-soft);
+  padding: 12px 14px;
+  border-radius: 11px;
+  margin-block-end: 18px;
+}
+
+/* Custom select with chevron, used for the per-product size picker. */
+.sai-o1uear1c__select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.sai-o1uear1c__select-wrap .sai-o1uear1c__lookrow-variant {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-inline-end: 28px;
+}
+
+.sai-o1uear1c__select-chevron {
+  position: absolute;
+  inset-inline-end: 9px;
+  pointer-events: none;
+  color: var(--o-ink-3);
+}
+
+/* Photo step — dropzone + ready chip (override the legacy token-based rules
+   above with the studio's px treatment). */
+.sai-o1uear1c__dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 30px 22px;
+  margin: 0;
+  border: 1.5px dashed var(--o-line);
+  border-radius: 14px;
+  background-color: color-mix(in srgb, var(--sai-color-fg) 3%, var(--sai-color-bg));
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+@media (hover: hover) {
+  /* The resting icon tile and the dropzone's hover wash both derive from
+     --o-accent-soft. Hovering to that exact wash makes the icon tile dissolve
+     into the background. Keep the hover wash lighter than the tile, and deepen
+     the tile on hover, so the two stay distinct. */
+  .sai-o1uear1c__dropzone:hover {
+    border-color: var(--o-accent);
+    background-color: color-mix(in srgb, var(--o-accent) 5%, var(--sai-color-bg));
+  }
+  .sai-o1uear1c__dropzone:hover .sai-o1uear1c__dropzone-icon {
+    background-color: color-mix(in srgb, var(--o-accent) 18%, var(--sai-color-bg));
+  }
+}
+
+.sai-o1uear1c__dropzone-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 46px;
+  block-size: 46px;
+  border-radius: 12px;
+  background-color: var(--o-accent-soft);
+  color: var(--o-accent);
+}
+
+.sai-o1uear1c__dropzone-hint {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--o-ink-2);
+}
+
+.sai-o1uear1c__ready-chip {
+  display: inline-flex;
+  /* The panel is a centering flex column; keep the chip hugging its label
+     instead of stretching across the full panel width. */
+  align-self: flex-start;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: var(--sai-font-body-weight-bold);
+  color: var(--sai-color-success, #2e7d4f);
+  background-color: color-mix(in srgb, var(--sai-color-success, #2e7d4f) 14%, var(--sai-color-bg));
+  padding: 8px 12px;
+  border-radius: 9px;
+}
+
+@media (max-width: 48rem) {
+  /* Full-screen edge-to-edge sheet on phones. `margin: 0` removes the base rule's
+     centered gutter; `100%` (not 100vw) fills the viewport without a scrollbar
+     sliver in a preview iframe. */
+  .sai-o1uear1c__dialog {
+    inline-size: 100%;
+    max-inline-size: none;
+    block-size: 100dvh;
+    max-block-size: none;
+    margin: 0;
+    border-radius: 0;
+  }
+  .sai-o1uear1c__body {
+    overflow-y: auto;
+  }
+  /* Single scroll on phones + tablets: the whole two-pane sheet (stage visual +
+     panel controls) scrolls as ONE column. The desktop --looks body is a
+     clipped flex row that hands the scroll to an inner panel, which trapped the
+     product list in a short, separately-scrolling pane. Making the sheet body a
+     plain block scroll container and letting the lightbox grow past the viewport
+     moves the scroll to the sheet itself. */
+  .sai-o1uear1c__dialog--looks .sai-o1uear1c__body {
+    display: block;
+    overflow-y: auto;
+  }
+  .sai-o1uear1c__lightbox {
+    flex-direction: column;
+    min-block-size: 100%;
+    block-size: auto;
+  }
+  /* Drop the inner panel scroll — panel content flows into the sheet's single
+     scroll instead of nesting its own scrollbar. */
+  .sai-o1uear1c__panel-body {
+    overflow: visible;
+  }
+  /* Stage becomes a banner across the top; result gives it a touch more height
+     for the hero + filmstrip. */
+  .sai-o1uear1c__stage {
+    inline-size: 100%;
+    flex: none;
+    block-size: 42vh;
+  }
+  /* Result stage sizes to its content now that the sheet scrolls as one: a
+     prominent portrait hero (the generated try-on) with the "Tap to wear"
+     filmstrip flowing beneath it, instead of both being crammed into a fixed
+     52vh band that shrank the image to a letterbox. */
+  .sai-o1uear1c__stage--result {
+    block-size: auto;
+  }
+  .sai-o1uear1c__stage--result .sai-o1uear1c__result-frame {
+    flex: none;
+    aspect-ratio: 3 / 4;
+    /* Portrait at phone widths (≈4:3 tall); capped so the wider tablet end of
+       this breakpoint doesn't blow the hero up to near-full-screen. */
+    max-block-size: 62vh;
+  }
+  .sai-o1uear1c__panel {
+    flex: 1 1 auto;
+    border-inline-start: none;
+  }
+  /* Equal-width footer buttons on phones/tablets. The base primary action
+     flex-grows (1 1 auto) so it otherwise renders wider than the ghost beside
+     it; a zero flex-basis on both makes the row split evenly. */
+  .sai-o1uear1c__panel-foot--row .sai-o1uear1c__action {
+    flex: 1 1 0;
+  }
+  /* Only the result's add-to-bag CTA pins to the bottom while the sheet scrolls;
+     the input-step footers (consent / photo / processing) share the
+     .sai-o1uear1c__panel-foot class, so the result is singled out via its
+     sibling result panel-body. The safe-area inset keeps the pinned bar clear of
+     the home indicator on notched phones; the base rule supplies the background
+     + top hairline so scrolling content doesn't bleed through. */
+  .sai-o1uear1c__panel-body--result ~ .sai-o1uear1c__panel-foot {
+    position: sticky;
+    inset-block-end: 0;
+    padding-block-end: calc(16px + env(safe-area-inset-bottom));
+  }
+  .sai-o1uear1c__float-close {
+    inset-block-start: calc(16px + env(safe-area-inset-top));
+    inset-inline-end: calc(16px + env(safe-area-inset-right));
+  }
+  /* Phone summary row: thumbnail + name/price with Add pinned right on line 1;
+     the size-select drops to line 2 under the name so the centre info keeps the
+     row width. `display: contents` promotes the select + Add out of their
+     wrapper so both can be placed directly in this grid. */
+  .sai-o1uear1c__lookrow {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      'thumb info   add'
+      '.     select select';
+    column-gap: 13px;
+    row-gap: 8px;
+    align-items: center;
+  }
+  .sai-o1uear1c__lookrow-thumb {
+    grid-area: thumb;
+    align-self: start;
+  }
+  .sai-o1uear1c__lookrow-info {
+    grid-area: info;
+  }
+  .sai-o1uear1c__lookrow-controls {
+    display: contents;
+  }
+  .sai-o1uear1c__lookrow-controls .sai-o1uear1c__select-wrap {
+    grid-area: select;
+    justify-self: start;
+  }
+  .sai-o1uear1c__lookrow-controls .sai-o1uear1c__lookrow-add {
+    grid-area: add;
+  }
+}
+
+/* Inline notices — errors, warnings, rate-limit messages. */
+.sai-o1uear1c__notice {
+  margin: 0 0 var(--sai-size-4);
+  padding: var(--sai-size-3);
+  border-radius: var(--sai-radius-md);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.sai-o1uear1c__notice--warning {
+  background-color: color-mix(in srgb, var(--sai-color-fg) 8%, transparent);
+}
+
+.sai-o1uear1c__notice--error {
+  background-color: var(--sai-color-error);
+  color: var(--sai-color-error-fg);
+}
+
+.sai-o1uear1c__error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sai-size-3);
+  padding: var(--sai-size-6) var(--sai-size-4);
+  text-align: center;
+}
+
+.sai-o1uear1c__delete-link {
+  display: block;
+  margin: var(--sai-size-2) auto 0;
+  padding: var(--sai-size-1);
+  border: none;
+  background: none;
+  color: color-mix(in srgb, currentColor 70%, transparent);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.sai-o1uear1c__delete-link:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-o1uear1c__action {
+    transition: none;
+  }
+}
+{% endstylesheet %}
+
+{%- if product -%}
+
+  <script src="{{ 'sai-snippet-o1uear1c.js' | asset_url }}" async></script>
+
+  {%- assign content = variant.content -%}
+  {%- assign button_text = content.button_text | default: 'Try On With AI' -%}
+
+  {%- comment -%}
+    button_style is constrained to the three documented values; an unexpected
+    or missing value falls back to 'outline' (the production-safe neutral that
+    blends with any theme).
+  {%- endcomment -%}
+  {%- assign button_style = content.button_style -%}
+  {%- if button_style != 'primary' and button_style != 'secondary' and button_style != 'outline' -%}
+    {%- assign button_style = 'outline' -%}
+  {%- endif -%}
+
+  {%- comment -%}
+    button_icon defaults to true. Liquid's `| default:` filter would replace an
+    explicit `false`, so use an explicit nil check.
+  {%- endcomment -%}
+  {%- if content.button_icon == nil -%}
+    {%- assign button_icon = true -%}
+  {%- else -%}
+    {%- assign button_icon = content.button_icon -%}
+  {%- endif -%}
+
+  {%- comment -%}
+    show_branding defaults to true (same boolean-nil-check reason as button_icon).
+    Forwarded into the JSON payload; the client gates the result-image watermark.
+  {%- endcomment -%}
+  {%- if content.show_branding == nil -%}
+    {%- assign show_branding = true -%}
+  {%- else -%}
+    {%- assign show_branding = content.show_branding -%}
+  {%- endif -%}
+
+  {%- comment -%}
+    Editorial-look companions for the "Complete the look" try-on, read from the
+    same editorial-looks metafield the Shop the Look section consumes so VTO
+    composites the curated outfit a merchant actually built (not generic FBT
+    co-purchase recs). Resolved here off the `product` global rather than via
+    the resource-slot wrapper: VTO is metaobject-backed, and a resource `source`
+    would gate the CTA on a virtual_try_on slot metafield nothing provisions
+    (see the snippet's template-invariants test).
+
+    Draft/live coalesce: prefer `editorial_looks_draft` when present, else
+    `editorial_looks_live`. Editorial looks promote straight to the live key
+    today (no separate draft content), so this reads live in practice; if a
+    draft is ever written it is preferred automatically. The deep walk
+    (slots -> looks -> outfit -> products) is bounded and deduped below to stay
+    within Shopify's connected-reference budget.
+  {%- endcomment -%}
+  {%- assign sai_eli_slots = product.metafields.spectrum.editorial_looks_draft.value -%}
+  {%- unless sai_eli_slots -%}
+    {%- assign sai_eli_slots = product.metafields.spectrum.editorial_looks_live.value -%}
+  {%- endunless -%}
+  {%- assign sai_eli_current = product.id | append: '' -%}
+
+  {%- comment -%}
+    Try-on family (garment | jewellery | makeup), server-resolved per product
+    from the spectrum.vto_family metafield (set white-glove alongside the
+    per-product render config). Drives the snippet's per-family photo guidance
+    and result display crop. Absent or blank falls back to garment, the
+    production-safe default — a product with no family metafield keeps the
+    unchanged garment flow. The client re-validates via resolveFamily, so an
+    unexpected value still degrades to garment rather than reaching a strategy
+    that cannot render it.
+  {%- endcomment -%}
+  {%- assign vto_family = product.metafields.spectrum.vto_family.value -%}
+  {%- if vto_family == blank -%}
+    {%- assign vto_family = 'garment' -%}
+  {%- endif -%}
+
+  <sai-o1uear1c
+    class="sai-o1uear1c"
+    data-product-id="{{ product.id }}"
+    data-product-handle="{{ product.handle }}"
+    data-proxy-base="/apps/spectrum"
+  >
+    <button
+      type="button"
+      class="sai-o1uear1c__button sai-o1uear1c__button--{{ button_style }}"
+      data-action="open-try-on"
+    >
+      {%- comment -%}
+        The moving sheen is decorative and only rides the filled primary
+        treatment, where it reads as intended; outline/secondary stay calm.
+      {%- endcomment -%}
+      {%- if button_style == 'primary' -%}
+        <span class="sai-o1uear1c__shine" aria-hidden="true"></span>
+      {%- endif -%}
+      {%- if button_icon -%}
+        <span class="sai-o1uear1c__icon" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" focusable="false">
+            <path d="M2 5.5C2 4.67157 2.67157 4 3.5 4H5L6 2.5H12L13 4H14.5C15.3284 4 16 4.67157 16 5.5V13C16 13.8284 15.3284 14.5 14.5 14.5H3.5C2.67157 14.5 2 13.8284 2 13V5.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="9" cy="9" r="2.75" stroke="currentColor" stroke-width="1.5"/>
+          </svg>
+        </span>
+      {%- endif -%}
+      <span class="sai-o1uear1c__label">{{ button_text }}</span>
+    </button>
+
+    {%- comment -%}
+      Data block consumed once on init by the snippet JS. Per-value `| json` is
+      mandatory (see the contract note in the leading comment). The shapes:
+        - product : id, title, options[], available, plus variants[] each
+                    carrying id / title / options[] / available / image URLs.
+        - fbt     : raw value of product.metafields.spectrum.recommendations_fbt_live
+                    (JSON authored by data ingestion) or null when absent.
+        - editorialLooks : the current product's editorial-look outfit
+                    companions (excluding the product itself) — one entry per
+                    outfit product with its garment image + first-available
+                    variant. The client prefers these over `fbt` for the
+                    "Complete the look" try-on; an empty array falls back to fbt.
+        - customerPhoto : raw value of the saved customer photo metafield, or
+                          null for anonymous shoppers / shoppers with no photo.
+        - vtoReferenceImage : raw value of product.metafields.spectrum.vto_reference_image
+                              (a model-worn fit reference URL) or null. When
+                              present the JS forwards it to /vto/generate as
+                              `modelWornImageUrl`; generation works without it.
+        - family  : the server-resolved try-on family (garment | jewellery |
+                    makeup) from product.metafields.spectrum.vto_family, defaulted
+                    to garment. Selects the single-product flow (no looks/scene/
+                    complete-the-look) and the result display for the new families.
+        - props   : the merchant-configurable presentation settings the modal
+                    needs at runtime.
+    {%- endcomment -%}
+    <script type="application/json" data-vto-payload>
+{
+  "product": {
+    "id": {{ product.id | json }},
+    "title": {{ product.title | json }},
+    "handle": {{ product.handle | json }},
+    {%- comment -%}
+      Garment body region (top / bottom / whole-body) is resolved server-side
+      from these so a single-garment try-on keeps the shopper's other clothing
+      without a vision call. `type` is the merchant's free-text product type;
+      `category` is the Shopify Standard Product Taxonomy name when set (nil-safe).
+    {%- endcomment -%}
+    "type": {{ product.type | json }},
+    "category": {%- if product.category -%}{{ product.category.name | json }}{%- else -%}null{%- endif -%},
+    "url": {{ product.url | json }},
+    "options": {{ product.options | json }},
+    "available": {{ product.available | json }},
+    "featuredImageUrl": {%- if product.featured_image -%}{{ product.featured_image | image_url: width: 800 | json }}{%- else -%}null{%- endif -%},
+    {%- comment -%} Money-formatted price for the current product's result row, mirroring look products. {%- endcomment -%}
+    "price": {%- if product.selected_or_first_available_variant -%}{{ product.selected_or_first_available_variant.price | money | json }}{%- else -%}null{%- endif -%},
+    "variants": [
+      {%- for v in product.variants -%}
+        {%- unless forloop.first -%},{%- endunless -%}
+        {
+          "id": {{ v.id | json }},
+          "title": {{ v.title | json }},
+          "options": {{ v.options | json }},
+          "available": {{ v.available | json }},
+          "imageUrl": {%- if v.image -%}{{ v.image | image_url: width: 800 | json }}{%- else -%}null{%- endif -%}
+        }
+      {%- endfor -%}
+    ]
+  },
+  "fbt": {{ product.metafields.spectrum.recommendations_fbt_live.value | json }},
+  "editorialLooks": [
+    {%- assign sai_eli_seen = '|' -%}
+    {%- assign sai_eli_count = 0 -%}
+    {%- assign sai_eli_first = true -%}
+    {%- if sai_eli_slots -%}
+      {%- for sai_slot in sai_eli_slots -%}
+        {%- if sai_eli_count >= 8 -%}{%- break -%}{%- endif -%}
+        {%- if sai_slot.looks.value -%}
+          {%- for sai_look in sai_slot.looks.value -%}
+            {%- if sai_eli_count >= 8 -%}{%- break -%}{%- endif -%}
+            {%- if sai_look.outfit.value -%}
+              {%- for sai_oe in sai_look.outfit.value -%}
+                {%- if sai_eli_count >= 8 -%}{%- break -%}{%- endif -%}
+                {%- assign sai_eli_product = sai_oe.product.value -%}
+                {%- if sai_eli_product -%}
+                  {%- assign sai_eli_pid = sai_eli_product.id | append: '' -%}
+                  {%- assign sai_eli_tok = '|' | append: sai_eli_pid | append: '|' -%}
+                  {%- unless sai_eli_pid == sai_eli_current or sai_eli_seen contains sai_eli_tok -%}
+                    {%- assign sai_eli_seen = sai_eli_seen | append: sai_eli_pid | append: '|' -%}
+                    {%- assign sai_eli_count = sai_eli_count | plus: 1 -%}
+                    {%- assign sai_eli_variant = sai_eli_product.selected_or_first_available_variant -%}
+                    {%- assign sai_eli_img = '' -%}
+                    {%- if sai_eli_product.featured_image != blank -%}
+                      {%- assign sai_eli_img = sai_eli_product.featured_image | image_url: width: 800 -%}
+                    {%- endif -%}
+                    {%- unless sai_eli_first -%},{%- endunless -%}
+                    {%- assign sai_eli_first = false -%}
+                    {
+                      "product_id": {{ sai_eli_product.id | json }},
+                      "title": {{ sai_eli_product.title | json }},
+                      "handle": {{ sai_eli_product.handle | json }},
+                      "url": {{ sai_eli_product.url | json }},
+                      "image_url": {{ sai_eli_img | json }},
+                      "variant_id": {{ sai_eli_variant.id | json }},
+                      "available": {{ sai_eli_variant.available | json }},
+                      "price": {{ sai_eli_variant.price | money | json }}
+                    }
+                  {%- endunless -%}
+                {%- endif -%}
+              {%- endfor -%}
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  ],
+  {%- comment -%}
+    Grouped editorial looks for the result-step filmstrip: each entry is one
+    curated look (its `title` + every outfit product, current product included
+    so the tile's product count matches the merchant's look). The flat
+    `editorialLooks` above stays as-is for the legacy companion path; `looks`
+    is additive. The walk is bounded (≤6 looks, ≤6 products each) to stay within
+    Shopify's connected-reference budget, mirroring Shop the Look's access.
+  {%- endcomment -%}
+  "looks": [
+    {%- assign sai_lk_first = true -%}
+    {%- assign sai_lk_count = 0 -%}
+    {%- if sai_eli_slots -%}
+      {%- for sai_slot in sai_eli_slots -%}
+        {%- if sai_lk_count >= 6 -%}{%- break -%}{%- endif -%}
+        {%- if sai_slot.looks.value -%}
+          {%- for sai_look in sai_slot.looks.value -%}
+            {%- if sai_lk_count >= 6 -%}{%- break -%}{%- endif -%}
+            {%- if sai_look.outfit.value -%}
+              {%- assign sai_lk_count = sai_lk_count | plus: 1 -%}
+              {%- unless sai_lk_first -%},{%- endunless -%}
+              {%- assign sai_lk_first = false -%}
+              {%- comment -%}
+                Look hero — the styled photo of the whole outfit (the look's
+                first image asset). This is what the filmstrip tile shows: a
+                look is a styled combination, not a single garment, so it gets
+                its own representative image. The client falls back to a product
+                image only when a look has no hero asset.
+              {%- endcomment -%}
+              {%- assign sai_hero = '' -%}
+              {%- if sai_look.assets.value -%}
+                {%- for sai_asset in sai_look.assets.value -%}
+                  {%- if sai_asset.media.value != blank -%}
+                    {%- assign sai_hero = sai_asset.media.value | image_url: width: 800 -%}
+                    {%- break -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
+              {
+                "id": "look-{{ sai_lk_count }}",
+                "title": {{ sai_look.title | default: 'Look' | json }},
+                "hero_image": {{ sai_hero | json }},
+                "products": [
+                  {%- assign sai_op_first = true -%}
+                  {%- assign sai_op_count = 0 -%}
+                  {%- for sai_oe in sai_look.outfit.value -%}
+                    {%- if sai_op_count >= 6 -%}{%- break -%}{%- endif -%}
+                    {%- assign sai_op_product = sai_oe.product.value -%}
+                    {%- if sai_op_product -%}
+                      {%- assign sai_op_count = sai_op_count | plus: 1 -%}
+                      {%- assign sai_op_variant = sai_op_product.selected_or_first_available_variant -%}
+                      {%- assign sai_op_img = '' -%}
+                      {%- if sai_op_product.featured_image != blank -%}
+                        {%- assign sai_op_img = sai_op_product.featured_image | image_url: width: 800 -%}
+                      {%- endif -%}
+                      {%- assign sai_op_pid = sai_op_product.id | append: '' -%}
+                      {%- unless sai_op_first -%},{%- endunless -%}
+                      {%- assign sai_op_first = false -%}
+                      {
+                        "product_id": {{ sai_op_product.id | json }},
+                        "title": {{ sai_op_product.title | json }},
+                        "handle": {{ sai_op_product.handle | json }},
+                        "url": {{ sai_op_product.url | json }},
+                        "image_url": {{ sai_op_img | json }},
+                        "variant_id": {{ sai_op_variant.id | json }},
+                        "available": {{ sai_op_variant.available | json }},
+                        "price": {{ sai_op_variant.price | money | json }},
+                        "role": {{ sai_oe.role | json }},
+                        "is_current": {%- if sai_op_pid == sai_eli_current -%}true{%- else -%}false{%- endif -%},
+                        {%- comment -%}
+                          Per-product variants so the look panel can offer a size
+                          (variant) picker before add-to-cart. Capped at 10 to
+                          bound payload size; one-variant products emit a single
+                          entry and the client shows no picker.
+                        {%- endcomment -%}
+                        "variants": [
+                          {%- assign sai_op_vfirst = true -%}
+                          {%- for sai_op_v in sai_op_product.variants -%}
+                            {%- if forloop.index > 10 -%}{%- break -%}{%- endif -%}
+                            {%- unless sai_op_vfirst -%},{%- endunless -%}
+                            {%- assign sai_op_vfirst = false -%}
+                            {
+                              "id": {{ sai_op_v.id | json }},
+                              "title": {{ sai_op_v.title | json }},
+                              "available": {{ sai_op_v.available | json }}
+                            }
+                          {%- endfor -%}
+                        ]
+                      }
+                    {%- endif -%}
+                  {%- endfor -%}
+                ]
+              }
+            {%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  ],
+  "customerPhoto": {{ customer.metafields.spectrum_customer.vto_photo.value | json }},
+  "vtoReferenceImage": {{ product.metafields.spectrum.vto_reference_image.value | json }},
+  "family": {{ vto_family | json }},
+  "props": {
+    "dailyGenerationLimit": {{ content.daily_generation_limit | default: 10 | json }},
+    "consentText": {{ content.consent_text | json }},
+    "disclaimerText": {{ content.disclaimer_text | json }},
+    "showBranding": {{ show_branding | json }}
+  }
+}
+    </script>
+  </sai-o1uear1c>
+
+{%- endif -%}
