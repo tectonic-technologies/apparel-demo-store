@@ -462,11 +462,16 @@
     "sai_section_vuu0xl1v": {
       "type": "sai-section-vuu0xl1v",
       "settings": {}
+    },
+    "sai_section_a5nm3mm3": {
+      "type": "sai-section-a5nm3mm3",
+      "settings": {}
     }
   },
   "order": [
     "main",
     "sai_section_vuu0xl1v",
+    "sai_section_a5nm3mm3",
     "sai_section_kqkrqtcj",
     "product_recommendations_qggXJq"
   ]
