@@ -1,0 +1,1468 @@
+{% doc %}
+  Frequently Bought Together — bundle widget on the PDP.
+
+  Two layouts: `vertical` (cards stacked above CTA, total inline in CTA)
+  and `horizontal` (cards side by side with `+` separators, right-side
+  Total panel hosting the CTA). Selection / variant picker / batched
+  cart-add are identical across both.
+
+  @param entry                {SlotEnvelopeEntry} Resolved default entry
+                                                  from spectrum.fbt_<draft|live>;
+                                                  `entry.content.recommendations`
+                                                  is the array of product
+                                                  handles to render as
+                                                  recommendations.
+  @param variant              {Metaobject}        Default variant from
+                                                  spectrum_snippet_instance;
+                                                  `variant.content` carries
+                                                  merchant-edited props.
+  @param mo                   {Metaobject}        spectrum_snippet_instance
+                                                  metaobject drop.
+  @param mutation_handle      {string}            'mut-{instanceId}' —
+                                                  consumed by the wrapper's
+                                                  outer div, not this body.
+  @param experience_handle    {string}            Consumed by the wrapper's
+                                                  outer div.
+{% enddoc %}
+
+{%- comment -%}
+  Liquid globals used inside this snippet (NOT render args — Shopify-native):
+    - product            : the page's main product (PDP context).
+    - all_products       : handle-keyed product lookup. Capped at 20 unique
+                           handles per page across the whole render — well
+                           above the FBT count.
+    - shop               : currency code threaded into the JSON payload.
+
+  Empty / nil `entry.content.recommendations` collapses the whole widget.
+
+  Trust boundary: this snippet does NOT receive merchant-authored HTML —
+  every text prop (`heading`, `cta_label`, `section_description`,
+  `total_label`, `total_subtext`) is run through `| escape` defensively so
+  a merchant who pastes markup into a text field can't break the page
+  layout or inject content.
+{%- endcomment -%}
+
+{% stylesheet %}
+/* =============================================================================
+ * Frequently Bought Together (pb3tmxq9) — combined vertical + horizontal CSS.
+ *
+ * Shared rules live at the .sai-pb3tmxq9 root; layout-specific rules are
+ * nested under .sai-pb3tmxq9--vertical / .sai-pb3tmxq9--horizontal. Single
+ * author selectors stay at specificity (0,1,0) so per-instance baked rules
+ * (anchored on [data-spectrum-instance-id][data-spectrum-variant-id]) always
+ * win the cascade.
+ *
+ * Color tokens use --sai-pb3tmxq9-* custom properties so the Studio
+ * per-instance style panel can override them. Fonts/spacing/radius come from
+ * the theme's --sai-* design tokens — never hardcoded.
+ * ============================================================================= */
+
+.sai-pb3tmxq9,
+.sai-pb3tmxq9__modal-overlay {
+  --sai-pb3tmxq9-card-bg: #ffffff;
+  --sai-pb3tmxq9-card-border: rgba(0, 0, 0, 0.1);
+  --sai-pb3tmxq9-card-radius: 12px;
+  --sai-pb3tmxq9-sub-header-bg: #f4f4f4;
+  --sai-pb3tmxq9-checkbox-size: 1.5rem;
+  --sai-pb3tmxq9-image-size: 5.5rem;
+  --sai-pb3tmxq9-card-w: 11.5rem;
+  --sai-pb3tmxq9-image-h: 12rem;
+  --sai-pb3tmxq9-plus-size: 1.75rem;
+  --sai-pb3tmxq9-off-bg: #0e6f54;
+  --sai-pb3tmxq9-off-fg: #ffffff;
+  --sai-pb3tmxq9-rating-fg: #f5b013;
+  --sai-pb3tmxq9-low-stock-fg: #d24207;
+  --sai-pb3tmxq9-fg: var(--sai-color-fg, #121212);
+  --sai-pb3tmxq9-muted-fg: rgba(0, 0, 0, 0.55);
+  --sai-pb3tmxq9-cta-bg: #ffffff;
+  --sai-pb3tmxq9-cta-fg: #121212;
+  --sai-pb3tmxq9-cta-border: #121212;
+  --sai-pb3tmxq9-cta-hover-bg: #121212;
+  --sai-pb3tmxq9-cta-hover-fg: #ffffff;
+  --sai-pb3tmxq9-modal-overlay-bg: rgba(0, 0, 0, 0.55);
+  --sai-pb3tmxq9-modal-card-bg: #ffffff;
+  --sai-pb3tmxq9-pill-bg: #ededed;
+  --sai-pb3tmxq9-pill-fg: #121212;
+  --sai-pb3tmxq9-pill-selected-bg: #121212;
+  --sai-pb3tmxq9-pill-selected-fg: #ffffff;
+  --sai-pb3tmxq9-pill-disabled-fg: rgba(0, 0, 0, 0.45);
+  --sai-pb3tmxq9-done-bg: #121212;
+  --sai-pb3tmxq9-done-fg: #ffffff;
+  --sai-pb3tmxq9-loader-size: 1.125rem;
+}
+
+.sai-pb3tmxq9 {
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  margin-inline: auto;
+  margin-block: var(--sai-size-6);
+  font-family: var(--sai-font-body);
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--sai-pb3tmxq9-fg);
+}
+
+.sai-pb3tmxq9--vertical {
+  max-inline-size: 56rem;
+  padding-inline: var(--sai-size-4);
+  font-size: 1.0625rem;
+  line-height: 1.45;
+}
+
+.sai-pb3tmxq9--horizontal {
+  max-inline-size: 75rem;
+}
+
+.sai-pb3tmxq9 *,
+.sai-pb3tmxq9 *::before,
+.sai-pb3tmxq9 *::after {
+  box-sizing: border-box;
+}
+
+.sai-pb3tmxq9__inner {
+  inline-size: 100%;
+  box-sizing: border-box;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__inner {
+  padding-inline: var(--sai-size-4);
+}
+
+.sai-pb3tmxq9__heading {
+  font-family: var(--sai-font-heading, var(--sai-font-body));
+  font-size: 1.625rem;
+  font-weight: var(--sai-font-body-weight-bold, 700);
+  margin-block: 0 var(--sai-size-3);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__heading {
+  margin-block: 0 var(--sai-size-4);
+}
+
+.sai-pb3tmxq9__description {
+  margin: 0 0 var(--sai-size-4) 0;
+  font-size: 0.875rem;
+  color: var(--sai-pb3tmxq9-muted-fg);
+  line-height: 1.4;
+}
+
+/* ── Cards (shared base) ─────────────────────────────────────────────────── */
+
+.sai-pb3tmxq9__card {
+  background: var(--sai-pb3tmxq9-card-bg);
+  border: 1px solid var(--sai-pb3tmxq9-card-border);
+  border-radius: var(--sai-pb3tmxq9-card-radius);
+  overflow: hidden;
+}
+
+.sai-pb3tmxq9__title {
+  color: inherit;
+  text-decoration: none;
+  font-weight: var(--sai-font-body-weight-bold, 600);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sai-pb3tmxq9__title:hover {
+  text-decoration: underline;
+}
+
+.sai-pb3tmxq9__price-row {
+  display: flex;
+  gap: var(--sai-size-2);
+  flex-wrap: wrap;
+}
+
+.sai-pb3tmxq9__price {
+  font-weight: var(--sai-font-body-weight-bold, 600);
+}
+
+.sai-pb3tmxq9__compare {
+  text-decoration: line-through;
+  color: var(--sai-pb3tmxq9-muted-fg);
+}
+
+.sai-pb3tmxq9__off-badge {
+  background: var(--sai-pb3tmxq9-off-bg);
+  color: var(--sai-pb3tmxq9-off-fg);
+  border-radius: var(--sai-radius-round);
+  padding: 0.1875rem var(--sai-size-2);
+  font-size: 0.8125rem;
+  font-weight: var(--sai-font-body-weight-bold, 600);
+  letter-spacing: 0.02em;
+}
+
+.sai-pb3tmxq9__variant-trigger {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--sai-pb3tmxq9-card-border);
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sai-size-2);
+  font: inherit;
+  text-align: start;
+}
+
+.sai-pb3tmxq9__variant-trigger:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.sai-pb3tmxq9__variant-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sai-pb3tmxq9__chevron {
+  flex-shrink: 0;
+  color: var(--sai-pb3tmxq9-muted-fg);
+}
+
+/* ── Vertical layout ─────────────────────────────────────────────────────── */
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__card {
+  margin-block-end: var(--sai-size-3);
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__card--main {
+  border-color: rgba(0, 0, 0, 0.16);
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__sub-header {
+  background: var(--sai-pb3tmxq9-sub-header-bg);
+  font-size: 1rem;
+  font-weight: var(--sai-font-body-weight-bold, 600);
+  padding: var(--sai-size-3) var(--sai-size-4);
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--sai-size-4);
+  padding: var(--sai-size-4);
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__media {
+  display: block;
+  inline-size: var(--sai-pb3tmxq9-image-size);
+  /* block-size driven by the inline `aspect-ratio` style on this element
+     (set from the merchant's image_aspect_ratio prop). Fixed block-size
+     here would override the prop. */
+  block-size: auto;
+  border-radius: var(--sai-radius-2);
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.04);
+  flex-shrink: 0;
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__image {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__info {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__title {
+  font-size: 1.0625rem;
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__price-row {
+  align-items: center;
+  font-size: 1rem;
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__variant-trigger {
+  border-radius: var(--sai-radius-round);
+  padding: 0.5rem var(--sai-size-3);
+  font-size: 0.9375rem;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-inline-size: 9rem;
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__select {
+  display: flex;
+  flex-direction: column;
+  align-items: end;
+  gap: var(--sai-size-3);
+  align-self: stretch;
+  justify-content: space-between;
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--sai-pb3tmxq9-checkbox-size);
+  block-size: var(--sai-pb3tmxq9-checkbox-size);
+  border-radius: var(--sai-radius-2);
+  cursor: pointer;
+  position: relative;
+  background: transparent;
+  border: 1.5px solid rgba(0, 0, 0, 0.25);
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1), border-color
+    var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__checkbox:has(input:checked) {
+  background: var(--sai-color-primary);
+  border-color: var(--sai-color-primary);
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__checkbox:has(input:checked) .sai-pb3tmxq9__checkbox-mark {
+  color: var(--sai-color-primary-fg);
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__checkbox:has(input:focus-visible) {
+  outline: 2px solid var(--sai-color-primary);
+  outline-offset: 2px;
+}
+
+.sai-pb3tmxq9__checkbox input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.sai-pb3tmxq9__checkbox-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+}
+
+/* Hide the entire checkbox cell when the main product is locked. The hidden
+   <input> stays in the DOM (still checked by SSR + locked) so JS row-init
+   counts the main as selected — but the user sees no checkbox at all. */
+.sai-pb3tmxq9__checkbox--locked {
+  display: none !important;
+}
+
+/* Hide the whole main-product card while keeping it in the DOM. Used when the
+   main product is locked but its card is suppressed: the card's checkbox stays
+   present (checked + disabled) so JS still counts it and adds it to cart. */
+.sai-pb3tmxq9__card--hidden {
+  display: none !important;
+}
+
+.sai-pb3tmxq9__rating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold, 600);
+}
+
+.sai-pb3tmxq9__rating svg {
+  inline-size: 1rem;
+  block-size: 1rem;
+  color: var(--sai-pb3tmxq9-rating-fg);
+}
+
+/* ── Horizontal layout ───────────────────────────────────────────────────── */
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sai-size-4);
+  align-items: stretch;
+}
+
+@media (min-width: 768px) {
+  .sai-pb3tmxq9--horizontal .sai-pb3tmxq9__layout {
+    grid-template-columns: minmax(0, 1fr) 26rem;
+    gap: var(--sai-size-5);
+  }
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__cards {
+  display: flex;
+  align-items: stretch;
+  gap: 1rem;
+  inline-size: 100%;
+  min-inline-size: 0;
+  scrollbar-width: thin;
+  padding-block: 0.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 560px) {
+  .sai-pb3tmxq9--horizontal .sai-pb3tmxq9__cards {
+    overflow-x: auto;
+  }
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__cards::-webkit-scrollbar {
+  block-size: 6px;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__cards::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 999px;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__plus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--sai-pb3tmxq9-plus-size);
+  block-size: var(--sai-pb3tmxq9-plus-size);
+  border-radius: 999px;
+  border: 1px solid var(--sai-pb3tmxq9-card-border);
+  background: var(--sai-pb3tmxq9-card-bg);
+  color: var(--sai-pb3tmxq9-fg);
+  align-self: center;
+  flex-shrink: 0;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__card {
+  position: relative;
+  flex: 1 1 0;
+  min-inline-size: 9.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+  padding: var(--sai-size-3);
+}
+
+@media (max-width: 560px) {
+  .sai-pb3tmxq9--horizontal .sai-pb3tmxq9__card {
+    flex: 0 0 11rem;
+  }
+}
+
+/* Horizontal checkbox overlays the top-left of the card image. */
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__checkbox {
+  position: absolute;
+  inset-block-start: 0.625rem;
+  inset-inline-start: 0.625rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.375rem;
+  block-size: 1.375rem;
+  border-radius: 4px;
+  cursor: pointer;
+  background: #ffffff;
+  border: 1.5px solid rgba(0, 0, 0, 0.35);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__checkbox:has(input:checked) {
+  background: var(--sai-color-primary, #121212);
+  border-color: var(--sai-color-primary, #121212);
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__checkbox:has(input:checked) .sai-pb3tmxq9__checkbox-mark {
+  color: var(--sai-color-primary-fg, #ffffff);
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__checkbox:has(input:focus-visible) {
+  outline: 2px solid var(--sai-color-primary, #121212);
+  outline-offset: 2px;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__media {
+  display: block;
+  inline-size: 100%;
+  /* aspect-ratio set inline from the merchant's image_aspect_ratio prop.
+     Don't hardcode it here — the inline style would still win, but a CSS
+     default here makes the prop look broken when the inline value isn't
+     present (e.g. during template edits). */
+  block-size: auto;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__image {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__title {
+  font-size: 0.875rem;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__price-row {
+  align-items: baseline;
+  font-size: 0.9375rem;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__compare {
+  font-size: 0.8125rem;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__variant-trigger {
+  border-radius: 8px;
+  padding: 0.4375rem var(--sai-size-2);
+  font-size: 0.8125rem;
+  inline-size: 100%;
+  margin-block-start: auto;
+}
+
+/* ── Total panel + CTA (shared visual + layout overrides) ────────────────── */
+
+.sai-pb3tmxq9__cta {
+  appearance: none;
+  inline-size: 100%;
+  background: var(--sai-pb3tmxq9-cta-bg);
+  color: var(--sai-pb3tmxq9-cta-fg);
+  border: 1.5px solid var(--sai-pb3tmxq9-cta-border);
+  border-radius: var(--sai-pb3tmxq9-card-radius);
+  padding: 1rem 1.25rem;
+  font: inherit;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.sai-pb3tmxq9__cta:hover:not(:disabled) {
+  background: var(--sai-pb3tmxq9-cta-hover-bg);
+  color: var(--sai-pb3tmxq9-cta-hover-fg);
+}
+
+.sai-pb3tmxq9__cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sai-pb3tmxq9__error {
+  margin-block-start: var(--sai-size-2);
+  padding: var(--sai-size-2) var(--sai-size-3);
+  background: rgba(197, 48, 48, 0.08);
+  color: var(--sai-color-error, #c53030);
+  border-radius: var(--sai-radius-2);
+  font-size: 0.8125rem;
+}
+
+/* Vertical: CTA stacks label + inline total vertically. */
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  text-align: center;
+  line-height: 1.2;
+  margin-block-start: var(--sai-size-4);
+}
+
+/* The loader is positioned absolute and must keep its own flex display so the
+   spinner stays centered. Excluding it from this rule preserves both. */
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__cta > span:not(.sai-pb3tmxq9__loader) {
+  display: block;
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__total--inline {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.92;
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__total-inline-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__total-separator {
+  opacity: 0.6;
+}
+
+/* Hide the inline total line entirely when no amount is rendered yet. */
+.sai-pb3tmxq9--vertical .sai-pb3tmxq9__total--inline:has(.sai-pb3tmxq9__total-amount:empty) {
+  display: none;
+}
+
+/* Horizontal: right-side total panel layout. */
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__total--panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  padding-inline: var(--sai-size-2);
+  align-self: stretch;
+  justify-content: flex-start;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__cta {
+  background: var(--sai-pb3tmxq9-cta-hover-bg);
+  color: var(--sai-pb3tmxq9-cta-hover-fg);
+  border: none;
+  margin-block-start: auto;
+  padding: 1.125rem var(--sai-size-4);
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__cta:hover:not(:disabled) {
+  background: var(--sai-pb3tmxq9-cta-bg);
+  color: var(--sai-pb3tmxq9-cta-fg);
+  border: 1.5px solid var(--sai-pb3tmxq9-cta-border);
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__cta:disabled {
+  opacity: 0.45;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__total-heading {
+  font-size: 1.5rem;
+  font-weight: var(--sai-font-body-weight-bold, 700);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__total-subtext {
+  font-size: 0.875rem;
+  color: var(--sai-pb3tmxq9-muted-fg);
+  line-height: 1.4;
+  text-align: start;
+  flex: 0 1 auto;
+  min-inline-size: 0;
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__total-row {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sai-size-3);
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 540px) {
+  .sai-pb3tmxq9--horizontal .sai-pb3tmxq9__total-row {
+    flex-wrap: wrap;
+  }
+}
+
+.sai-pb3tmxq9--horizontal .sai-pb3tmxq9__total-amount {
+  margin-inline-start: auto;
+  font-family: var(--sai-font-heading, var(--sai-font-body));
+  font-size: 2rem;
+  font-weight: var(--sai-font-body-weight-bold, 700);
+  letter-spacing: -0.01em;
+  text-align: start;
+}
+
+/* ── Modal ───────────────────────────────────────────────────────────────── */
+
+.sai-pb3tmxq9__modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--sai-pb3tmxq9-modal-overlay-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2147483000;
+  padding: 1rem;
+  font-family: var(--sai-font-body, inherit);
+  color: var(--sai-pb3tmxq9-fg);
+  box-sizing: border-box;
+  animation: sai-pb3tmxq9-overlay-in 220ms ease forwards;
+}
+
+.sai-pb3tmxq9__modal-overlay[data-closing="true"] {
+  animation: sai-pb3tmxq9-overlay-out 220ms ease forwards;
+  pointer-events: none;
+}
+
+.sai-pb3tmxq9__modal-overlay *,
+.sai-pb3tmxq9__modal-overlay *::before,
+.sai-pb3tmxq9__modal-overlay *::after {
+  box-sizing: border-box;
+}
+
+@keyframes sai-pb3tmxq9-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sai-pb3tmxq9-overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sai-pb3tmxq9-card-in {
+  from {
+    transform: translateY(100vh);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes sai-pb3tmxq9-card-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100vh);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-pb3tmxq9__modal-overlay,
+  .sai-pb3tmxq9__modal-overlay[data-closing="true"],
+  .sai-pb3tmxq9__modal-card,
+  .sai-pb3tmxq9__modal-overlay[data-closing="true"] .sai-pb3tmxq9__modal-card {
+    animation-duration: 1ms !important;
+  }
+}
+
+.sai-pb3tmxq9__modal-card {
+  background: var(--sai-pb3tmxq9-modal-card-bg);
+  border-radius: 16px;
+  inline-size: 100%;
+  max-inline-size: 34rem;
+  max-block-size: calc(100vh - 2rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.5rem;
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.3);
+  animation: sai-pb3tmxq9-card-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  will-change: transform;
+}
+
+.sai-pb3tmxq9__modal-overlay[data-closing="true"] .sai-pb3tmxq9__modal-card {
+  animation: sai-pb3tmxq9-card-out 260ms cubic-bezier(0.4, 0, 0.6, 1) forwards;
+}
+
+.sai-pb3tmxq9__modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: var(--sai-size-3);
+}
+
+.sai-pb3tmxq9__modal-close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  padding: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sai-pb3tmxq9__modal-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.sai-pb3tmxq9__modal-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.sai-pb3tmxq9__modal-group-label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.sai-pb3tmxq9__modal-group-label [data-group-current] {
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.sai-pb3tmxq9__modal-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.sai-pb3tmxq9__pill {
+  appearance: none;
+  border: 1px solid var(--sai-pb3tmxq9-card-border);
+  background: var(--sai-pb3tmxq9-pill-bg);
+  color: var(--sai-pb3tmxq9-pill-fg);
+  border-radius: 999px;
+  padding: 0.625rem 1.125rem;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+  min-inline-size: 5.5rem;
+  line-height: 1.2;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.sai-pb3tmxq9__pill[data-selected="true"] {
+  background: var(--sai-pb3tmxq9-pill-selected-bg);
+  color: var(--sai-pb3tmxq9-pill-selected-fg);
+  border-color: var(--sai-pb3tmxq9-pill-selected-bg);
+}
+
+.sai-pb3tmxq9__pill[data-unavailable="true"] {
+  cursor: not-allowed;
+  color: var(--sai-pb3tmxq9-pill-disabled-fg);
+}
+
+.sai-pb3tmxq9__pill[data-unavailable="true"] .sai-pb3tmxq9__pill-value {
+  text-decoration: line-through;
+}
+
+.sai-pb3tmxq9__pill-value {
+  font-weight: var(--sai-font-body-weight-bold, 600);
+}
+
+.sai-pb3tmxq9__modal-stock {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--sai-pb3tmxq9-low-stock-fg);
+  padding-block-start: 0.5rem;
+  border-block-start: 1px solid var(--sai-pb3tmxq9-card-border);
+}
+
+.sai-pb3tmxq9__modal-stock[hidden] {
+  display: none;
+}
+
+.sai-pb3tmxq9__modal-done {
+  appearance: none;
+  background: var(--sai-pb3tmxq9-done-bg);
+  color: var(--sai-pb3tmxq9-done-fg);
+  border: none;
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+}
+
+/* ── Add-to-cart loader ──────────────────────────────────────────────────── */
+
+/* The button is the positioning context. While loading, the loader overlays
+   the button content (label + inline total). Label is kept in the DOM but
+   visibility:hidden so the button preserves its width. */
+.sai-pb3tmxq9__cta {
+  position: relative;
+}
+
+.sai-pb3tmxq9__loader {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+  pointer-events: none;
+}
+
+.sai-pb3tmxq9__loader[hidden] {
+  display: none;
+}
+
+.sai-pb3tmxq9__cta[data-loading="true"] > :not(.sai-pb3tmxq9__loader) {
+  visibility: hidden;
+}
+
+.sai-pb3tmxq9__spinner {
+  inline-size: var(--sai-pb3tmxq9-loader-size);
+  block-size: var(--sai-pb3tmxq9-loader-size);
+  animation: sai-pb3tmxq9-spin 0.8s linear infinite;
+}
+
+@keyframes sai-pb3tmxq9-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-pb3tmxq9__spinner {
+    animation-duration: 2s;
+  }
+}
+
+/* Per-breakpoint layout toggle — only present when desktop and mobile layouts
+   differ (otherwise a single element renders with neither class and shows at
+   all widths). Kept at single-class (0,1,0) specificity and placed after the
+   base `.sai-pb3tmxq9 { display: block }` rule, so it wins by source order
+   while a per-instance baked rule (anchored at (0,2,0)) still overrides it —
+   honouring the author-selector specificity contract. 768px matches the
+   horizontal layout's own desktop threshold. */
+.sai-pb3tmxq9--web-only { display: block; }
+.sai-pb3tmxq9--mweb-only { display: none; }
+@media (max-width: 767.98px) {
+  .sai-pb3tmxq9--web-only { display: none; }
+  .sai-pb3tmxq9--mweb-only { display: block; }
+}
+{% endstylesheet %}
+
+{%- assign content       = variant.content -%}
+{%- assign heading       = content.heading       | default: 'Frequently Bought Together' | escape -%}
+{%- assign cta_label     = content.cta_label     | default: 'Add To Cart' | escape -%}
+{%- assign total_label   = content.total_label   | default: 'Total' | escape -%}
+{%- assign total_subtext = content.total_subtext | default: 'Selected items will be added to cart.' | escape -%}
+{%- assign section_description = content.section_description | default: '' | escape -%}
+
+{%- assign lock_main = content.lock_main_product -%}
+{%- if lock_main == nil -%}{%- assign lock_main = false -%}{%- endif -%}
+
+{%- comment -%}
+  The main product participates in the bundle when it's locked (always added)
+  or its card is shown. `include_main` collapses the two:
+    - locked + shown   → card visible, always added
+    - locked + hidden  → card display:none (stays in DOM, still counted/added
+                         silently); only its card is suppressed
+    - unlocked + shown → card visible, selectable
+    - unlocked + hidden→ excluded: main card not rendered, not counted, not
+                         added — the bundle is add-ons only
+  Every main-card render site and the SSR count gate on `include_main`.
+{%- endcomment -%}
+{%- assign show_main = content.show_main_product -%}
+{%- if show_main == nil -%}{%- assign show_main = true -%}{%- endif -%}
+{%- assign include_main = false -%}
+{%- if lock_main or show_main -%}{%- assign include_main = true -%}{%- endif -%}
+
+{%- assign show_total_price = content.show_total_price -%}
+{%- if show_total_price == nil -%}{%- assign show_total_price = true -%}{%- endif -%}
+
+{%- assign after_add_action = content.after_add_action -%}
+{%- if after_add_action != 'stay' and after_add_action != 'redirect-to-cart' and after_add_action != 'redirect-to-checkout' -%}
+  {%- assign after_add_action = 'stay' -%}
+{%- endif -%}
+
+{%- assign show_ratings = content.show_ratings -%}
+{%- if show_ratings == nil -%}{%- assign show_ratings = true -%}{%- endif -%}
+
+{%- assign show_discount_badge = content.show_discount_badge -%}
+{%- if show_discount_badge == nil -%}{%- assign show_discount_badge = true -%}{%- endif -%}
+
+{%- comment -%}
+  Layout + select-prop allowlists. `| default:` is not enough — the merchant
+  could POST any string. Validate against the allowed set and fall back to
+  the safe default (fail-closed per .claude/rules/generated-liquid.md
+  "Default-to-safe on missing/invalid render arguments").
+{%- endcomment -%}
+{%- comment -%}
+  Preset id is the storage value; layout_class is the BEM modifier so the
+  CSS reads as `--vertical` / `--horizontal` rather than the catalog's
+  `default` preset name leaking into the markup.
+{%- endcomment -%}
+{%- comment -%}
+  Layout is per-breakpoint. `layout` is the desktop/base layout; `layout_mobile`
+  defaults to "inherit" → follows desktop, so existing instances (no
+  layout_mobile value) render identically at every breakpoint. When the two
+  resolve to different layouts, BOTH are rendered and a CSS viewport toggle
+  (--web-only / --mweb-only) shows one per breakpoint.
+{%- endcomment -%}
+{%- assign layout_desktop = content.layout -%}
+{%- if layout_desktop != 'default' and layout_desktop != 'horizontal' -%}
+  {%- assign layout_desktop = 'default' -%}
+{%- endif -%}
+{%- assign layout_mobile = content.layout_mobile -%}
+{%- if layout_mobile != 'default' and layout_mobile != 'horizontal' -%}
+  {%- assign layout_mobile = layout_desktop -%}
+{%- endif -%}
+{%- if layout_desktop == layout_mobile -%}
+  {%- assign sai_layouts = layout_desktop | split: '|' -%}
+{%- else -%}
+  {%- capture sai_layouts_csv -%}{{ layout_desktop }}|{{ layout_mobile }}{%- endcapture -%}
+  {%- assign sai_layouts = sai_layouts_csv | split: '|' -%}
+{%- endif -%}
+
+{%- assign checkbox_default_state = content.checkbox_default_state -%}
+{%- if checkbox_default_state != 'selected' and checkbox_default_state != 'unselected' -%}
+  {%- assign checkbox_default_state = 'selected' -%}
+{%- endif -%}
+{%- assign default_checked = true -%}
+{%- if checkbox_default_state == 'unselected' -%}{%- assign default_checked = false -%}{%- endif -%}
+
+{%- assign image_aspect_ratio = content.image_aspect_ratio -%}
+{%- if image_aspect_ratio != '1:1' and image_aspect_ratio != '4:3' and image_aspect_ratio != '3:4' -%}
+  {%- assign image_aspect_ratio = '1:1' -%}
+{%- endif -%}
+{%- assign aspect_css = '1' -%}
+{%- if image_aspect_ratio == '4:3' -%}{%- assign aspect_css = '4 / 3' -%}{%- endif -%}
+{%- if image_aspect_ratio == '3:4' -%}{%- assign aspect_css = '3 / 4' -%}{%- endif -%}
+
+{%- assign image_object_fit = content.image_object_fit -%}
+{%- if image_object_fit != 'cover' and image_object_fit != 'contain' -%}
+  {%- assign image_object_fit = 'cover' -%}
+{%- endif -%}
+
+{%- comment -%}
+  aspect-ratio drives the *box* shape, so it must be applied to the parent
+  `<a class="__media">` element. object-fit applies to the <img> itself —
+  CSS only respects object-fit on replaced elements. Without this split, the
+  inline style sits on a 100%×100%-filling img inside a fixed-shape parent,
+  and aspect-ratio has nowhere to take effect.
+{%- endcomment -%}
+{%- assign media_style = 'aspect-ratio: ' | append: aspect_css | append: ';' -%}
+{%- assign image_style = 'object-fit: ' | append: image_object_fit | append: ';' -%}
+
+{%- assign fbt_handles = entry.content.recommendations -%}
+
+{%- comment -%}
+  Cap the number of recommendations shown. `max_recommendations` defaults to 3
+  (new instances and legacy instances with no value alike). Slicing here — before
+  the resolve pre-pass and every downstream loop (cards, payload, order) — keeps
+  the rendered cards, the JSON payload, and the count consistent. A cap only ever
+  trims: fewer recommendations than the cap render unchanged.
+{%- endcomment -%}
+{%- assign max_reco = content.max_recommendations -%}
+{%- if max_reco == nil or max_reco == blank -%}
+  {%- assign max_reco = 3 -%}
+{%- else -%}
+  {%- assign max_reco = max_reco | plus: 0 -%}
+{%- endif -%}
+{%- if max_reco < 1 -%}{%- assign max_reco = 1 -%}{%- endif -%}
+{%- if fbt_handles != nil and fbt_handles.size > max_reco -%}
+  {%- assign fbt_handles = fbt_handles | slice: 0, max_reco -%}
+{%- endif -%}
+
+{%- comment -%}
+  Pre-pass: count handles that resolve to a real product drop.
+  `all_products[h]` returns EmptyDrop (NOT nil) for unknown handles, so the
+  safe test is `r == empty`. Used as the collapse gate so a payload of
+  entirely-stale handles renders nothing.
+{%- endcomment -%}
+{%- assign resolved_count = 0 -%}
+{%- if fbt_handles != nil -%}
+  {%- for handle in fbt_handles -%}
+    {%- assign r = all_products[handle] -%}
+    {%- unless r == empty -%}
+      {%- assign resolved_count = resolved_count | plus: 1 -%}
+    {%- endunless -%}
+  {%- endfor -%}
+{%- endif -%}
+
+{%- if resolved_count == 0 -%}
+  {%- comment -%} no recos — collapse widget; do not emit the script tag {%- endcomment -%}
+{%- else -%}
+
+<script src="{{ 'sai-snippet-pb3tmxq9.js' | asset_url }}" async></script>
+
+{%- comment -%}
+  SSR CTA count must match what the JS computes on hydration, or the
+  merchant sees a flash of "Add To Cart (N)" before the count corrects.
+  Locked main is always counted; default-unchecked starts at 0; the
+  default-checked case includes main + resolved recos. An excluded main
+  (unlocked + hidden) is never counted.
+{%- endcomment -%}
+{%- assign main_checked = false -%}
+{%- if include_main and lock_main -%}{%- assign main_checked = true -%}{%- endif -%}
+{%- if include_main and default_checked -%}{%- assign main_checked = true -%}{%- endif -%}
+{%- assign total_count = 0 -%}
+{%- if main_checked -%}{%- assign total_count = 1 -%}{%- endif -%}
+{%- if default_checked -%}{%- assign total_count = total_count | plus: resolved_count -%}{%- endif -%}
+
+{%- comment -%}
+  Render one <sai-pb3tmxq9> per resolved layout. Single entry (desktop == mobile,
+  incl. every legacy instance) → one element, no viewport class, shown at all
+  widths (identical to the pre-per-breakpoint behavior). Two entries → desktop
+  first (--web-only), mobile second (--mweb-only); each is an independent
+  custom-element instance with its own payload, so the two coexist safely.
+{%- endcomment -%}
+{%- for sai_lo in sai_layouts -%}
+{%- assign layout = sai_lo -%}
+{%- assign layout_class = 'vertical' -%}
+{%- if layout == 'horizontal' -%}{%- assign layout_class = 'horizontal' -%}{%- endif -%}
+{%- assign sai_vp_class = '' -%}
+{%- if sai_layouts.size > 1 -%}
+  {%- if forloop.first -%}{%- assign sai_vp_class = ' sai-pb3tmxq9--web-only' -%}{%- else -%}{%- assign sai_vp_class = ' sai-pb3tmxq9--mweb-only' -%}{%- endif -%}
+{%- endif -%}
+<sai-pb3tmxq9 class="sai-pb3tmxq9 sai-pb3tmxq9--{{ layout_class }}{{ sai_vp_class }}">
+  <div class="sai-pb3tmxq9__inner">
+    <h2 class="sai-pb3tmxq9__heading">{{ heading }}</h2>
+    {%- if section_description != '' -%}
+      <p class="sai-pb3tmxq9__description">{{ section_description }}</p>
+    {%- endif -%}
+
+    {%- if layout == 'horizontal' -%}
+
+    {%- comment -%} ── Horizontal layout: cards row + side total panel ─────── {%- endcomment -%}
+    <div class="sai-pb3tmxq9__layout">
+      <div class="sai-pb3tmxq9__cards">
+
+        {%- if include_main -%}
+        <div class="sai-pb3tmxq9__card sai-pb3tmxq9__card--main{% unless show_main %} sai-pb3tmxq9__card--hidden{% endunless %}" data-product-id="{{ product.id }}">
+          <label class="sai-pb3tmxq9__checkbox{% if lock_main %} sai-pb3tmxq9__checkbox--locked{% endif %}">
+            <input type="checkbox" data-fbt-checkbox
+              {% if lock_main or default_checked %}checked{% endif %}
+              aria-label="Include {{ product.title | escape }}"
+              {% if lock_main %}disabled{% endif %}>
+            <span class="sai-pb3tmxq9__checkbox-mark" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" focusable="false">
+                <path d="M3 7L6 10L11 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+          </label>
+          <a class="sai-pb3tmxq9__media" href="{{ product.url }}" style="{{ media_style }}" tabindex="-1" aria-hidden="true">
+            {%- if product.featured_image -%}
+              <img
+                class="sai-pb3tmxq9__image"
+                src="{{ product.featured_image | image_url: width: 400 }}"
+                alt="{{ product.featured_image.alt | default: product.title | escape }}"
+                style="{{ image_style }}"
+                loading="lazy"
+              >
+            {%- endif -%}
+          </a>
+          <a class="sai-pb3tmxq9__title" href="{{ product.url }}">{{ product.title }}</a>
+          <div class="sai-pb3tmxq9__price-row">
+            <span class="sai-pb3tmxq9__price">{{ product.price | money }}</span>
+            {%- if product.compare_at_price and product.compare_at_price > product.price -%}
+              <span class="sai-pb3tmxq9__compare">{{ product.compare_at_price | money }}</span>
+              {%- if show_discount_badge -%}
+                {%- assign p_off_amount = product.compare_at_price | minus: product.price -%}
+                {%- assign p_off_pct = p_off_amount | times: 100 | divided_by: product.compare_at_price -%}
+                <span class="sai-pb3tmxq9__off-badge">{{ p_off_pct }}% OFF</span>
+              {%- endif -%}
+            {%- endif -%}
+          </div>
+          {%- if product.variants.size > 1 -%}
+            <button type="button" class="sai-pb3tmxq9__variant-trigger" data-variant-trigger aria-haspopup="dialog">
+              <span class="sai-pb3tmxq9__variant-label">{{ product.variants.first.title }}</span>
+              <svg class="sai-pb3tmxq9__chevron" width="12" height="12" viewBox="0 0 14 14" fill="none" focusable="false" aria-hidden="true">
+                <path d="M3 5L7 9L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          {%- endif -%}
+        </div>
+        {%- endif -%}
+
+        {%- for handle in fbt_handles -%}
+          {%- assign r = all_products[handle] -%}
+          {%- if r == empty -%}{%- continue -%}{%- endif -%}
+          {%- if forloop.first and include_main -%}
+            <div class="sai-pb3tmxq9__plus" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" focusable="false">
+                <path d="M7 2V12M2 7H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+          {%- endif -%}
+          <div class="sai-pb3tmxq9__card sai-pb3tmxq9__card--reco" data-product-id="{{ r.id }}">
+            <label class="sai-pb3tmxq9__checkbox">
+              <input type="checkbox" data-fbt-checkbox {% if default_checked %}checked{% endif %} aria-label="Include {{ r.title | escape }}">
+              <span class="sai-pb3tmxq9__checkbox-mark" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" focusable="false">
+                  <path d="M3 7L6 10L11 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+            </label>
+            <a class="sai-pb3tmxq9__media" href="{{ r.url }}" style="{{ media_style }}" tabindex="-1" aria-hidden="true">
+              {%- if r.featured_image -%}
+                <img
+                  class="sai-pb3tmxq9__image"
+                  src="{{ r.featured_image | image_url: width: 400 }}"
+                  alt="{{ r.featured_image.alt | default: r.title | escape }}"
+                  style="{{ image_style }}"
+                  loading="lazy"
+                >
+              {%- endif -%}
+            </a>
+            <a class="sai-pb3tmxq9__title" href="{{ r.url }}">{{ r.title }}</a>
+            <div class="sai-pb3tmxq9__price-row">
+              <span class="sai-pb3tmxq9__price">{{ r.price | money }}</span>
+              {%- if r.compare_at_price and r.compare_at_price > r.price -%}
+                <span class="sai-pb3tmxq9__compare">{{ r.compare_at_price | money }}</span>
+                {%- if show_discount_badge -%}
+                  {%- assign r_off_amount = r.compare_at_price | minus: r.price -%}
+                  {%- assign r_off_pct = r_off_amount | times: 100 | divided_by: r.compare_at_price -%}
+                  <span class="sai-pb3tmxq9__off-badge">{{ r_off_pct }}% OFF</span>
+                {%- endif -%}
+              {%- endif -%}
+            </div>
+            {%- if r.variants.size > 1 -%}
+              <button type="button" class="sai-pb3tmxq9__variant-trigger" data-variant-trigger aria-haspopup="dialog">
+                <span class="sai-pb3tmxq9__variant-label">{{ r.variants.first.title }}</span>
+                <svg class="sai-pb3tmxq9__chevron" width="12" height="12" viewBox="0 0 14 14" fill="none" focusable="false" aria-hidden="true">
+                  <path d="M3 5L7 9L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            {%- endif -%}
+          </div>
+        {%- endfor -%}
+      </div>
+
+      <aside class="sai-pb3tmxq9__total sai-pb3tmxq9__total--panel">
+        {%- if show_total_price -%}
+          <div class="sai-pb3tmxq9__total-heading">{{ total_label }}</div>
+          <div class="sai-pb3tmxq9__total-row">
+            <div class="sai-pb3tmxq9__total-subtext">{{ total_subtext }}</div>
+            <div class="sai-pb3tmxq9__total-amount" data-fbt-total></div>
+          </div>
+        {%- endif -%}
+        <button type="button" class="sai-pb3tmxq9__cta" data-fbt-cta>
+          <span data-fbt-cta-label>{{ cta_label }} ({{ total_count }})</span>
+          <span class="sai-pb3tmxq9__loader" data-fbt-loader hidden aria-hidden="true">
+            <svg class="sai-pb3tmxq9__spinner" viewBox="0 0 24 24" fill="none" focusable="false">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" stroke-width="3"/>
+              <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            </svg>
+          </span>
+        </button>
+        <div class="sai-pb3tmxq9__error" data-fbt-error role="alert" hidden></div>
+      </aside>
+    </div>
+
+    {%- else -%}
+
+    {%- comment -%} ── Vertical layout: stacked cards + full-width CTA below ── {%- endcomment -%}
+    {%- if include_main -%}
+    <div class="sai-pb3tmxq9__card sai-pb3tmxq9__card--main{% unless show_main %} sai-pb3tmxq9__card--hidden{% endunless %}" data-product-id="{{ product.id }}">
+      <div class="sai-pb3tmxq9__sub-header">Product on this page</div>
+      <div class="sai-pb3tmxq9__row">
+        <a class="sai-pb3tmxq9__media" href="{{ product.url }}" style="{{ media_style }}" tabindex="-1" aria-hidden="true">
+          {%- if product.featured_image -%}
+            <img
+              class="sai-pb3tmxq9__image"
+              src="{{ product.featured_image | image_url: width: 200 }}"
+              alt="{{ product.featured_image.alt | default: product.title | escape }}"
+              style="{{ image_style }}"
+              loading="lazy"
+            >
+          {%- endif -%}
+        </a>
+        <div class="sai-pb3tmxq9__info">
+          <a class="sai-pb3tmxq9__title" href="{{ product.url }}">{{ product.title }}</a>
+          <div class="sai-pb3tmxq9__price-row">
+            <span class="sai-pb3tmxq9__price">{{ product.price | money }}</span>
+            {%- if product.compare_at_price and product.compare_at_price > product.price -%}
+              {%- assign p_off_amount = product.compare_at_price | minus: product.price -%}
+              {%- assign p_off_pct = p_off_amount | times: 100 | divided_by: product.compare_at_price -%}
+              <span class="sai-pb3tmxq9__compare">{{ product.compare_at_price | money }}</span>
+              {%- if show_discount_badge -%}
+                <span class="sai-pb3tmxq9__off-badge">{{ p_off_pct }}% OFF</span>
+              {%- endif -%}
+            {%- endif -%}
+          </div>
+          {%- if product.variants.size > 1 -%}
+            <button type="button" class="sai-pb3tmxq9__variant-trigger" data-variant-trigger aria-haspopup="dialog">
+              <span class="sai-pb3tmxq9__variant-label">{{ product.variants.first.title }}</span>
+              <svg class="sai-pb3tmxq9__chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" focusable="false" aria-hidden="true">
+                <path d="M3 5L7 9L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          {%- endif -%}
+        </div>
+        <div class="sai-pb3tmxq9__select">
+          <label class="sai-pb3tmxq9__checkbox{% if lock_main %} sai-pb3tmxq9__checkbox--locked{% endif %}">
+            <input type="checkbox" data-fbt-checkbox
+              {% if lock_main or default_checked %}checked{% endif %}
+              aria-label="Include {{ product.title | escape }}"
+              {% if lock_main %}disabled{% endif %}>
+            <span class="sai-pb3tmxq9__checkbox-mark" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" focusable="false">
+                <path d="M3 7L6 10L11 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+          </label>
+          {%- if show_ratings and product.metafields.reviews.rating.value.rating -%}
+            <span class="sai-pb3tmxq9__rating" aria-label="Rating">
+              <svg width="14" height="14" viewBox="0 0 14 14" focusable="false" aria-hidden="true">
+                <path d="M7 1L8.8 4.8L13 5.4L10 8.3L10.7 12.5L7 10.5L3.3 12.5L4 8.3L1 5.4L5.2 4.8L7 1Z" fill="currentColor"/>
+              </svg>
+              <span>{{ product.metafields.reviews.rating.value.rating | round: 1 }}</span>
+            </span>
+          {%- endif -%}
+        </div>
+      </div>
+    </div>
+    {%- endif -%}
+
+    {%- for handle in fbt_handles -%}
+      {%- assign r = all_products[handle] -%}
+      {%- if r == empty -%}{%- continue -%}{%- endif -%}
+      <div class="sai-pb3tmxq9__card sai-pb3tmxq9__card--reco" data-product-id="{{ r.id }}">
+        <div class="sai-pb3tmxq9__row">
+          <a class="sai-pb3tmxq9__media" href="{{ r.url }}" style="{{ media_style }}" tabindex="-1" aria-hidden="true">
+            {%- if r.featured_image -%}
+              <img
+                class="sai-pb3tmxq9__image"
+                src="{{ r.featured_image | image_url: width: 200 }}"
+                alt="{{ r.featured_image.alt | default: r.title | escape }}"
+                style="{{ image_style }}"
+                loading="lazy"
+              >
+            {%- endif -%}
+          </a>
+          <div class="sai-pb3tmxq9__info">
+            <a class="sai-pb3tmxq9__title" href="{{ r.url }}">{{ r.title }}</a>
+            <div class="sai-pb3tmxq9__price-row">
+              <span class="sai-pb3tmxq9__price">{{ r.price | money }}</span>
+              {%- if r.compare_at_price and r.compare_at_price > r.price -%}
+                {%- assign r_off_amount = r.compare_at_price | minus: r.price -%}
+                {%- assign r_off_pct = r_off_amount | times: 100 | divided_by: r.compare_at_price -%}
+                <span class="sai-pb3tmxq9__compare">{{ r.compare_at_price | money }}</span>
+                {%- if show_discount_badge -%}
+                  <span class="sai-pb3tmxq9__off-badge">{{ r_off_pct }}% OFF</span>
+                {%- endif -%}
+              {%- endif -%}
+            </div>
+            {%- if r.variants.size > 1 -%}
+              <button type="button" class="sai-pb3tmxq9__variant-trigger" data-variant-trigger aria-haspopup="dialog">
+                <span class="sai-pb3tmxq9__variant-label">{{ r.variants.first.title }}</span>
+                <svg class="sai-pb3tmxq9__chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" focusable="false" aria-hidden="true">
+                  <path d="M3 5L7 9L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            {%- endif -%}
+          </div>
+          <div class="sai-pb3tmxq9__select">
+            <label class="sai-pb3tmxq9__checkbox">
+              <input type="checkbox" data-fbt-checkbox {% if default_checked %}checked{% endif %} aria-label="Include {{ r.title | escape }}">
+              <span class="sai-pb3tmxq9__checkbox-mark" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" focusable="false">
+                  <path d="M3 7L6 10L11 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </span>
+            </label>
+            {%- if show_ratings and r.metafields.reviews.rating.value.rating -%}
+              <span class="sai-pb3tmxq9__rating" aria-label="Rating">
+                <svg width="14" height="14" viewBox="0 0 14 14" focusable="false" aria-hidden="true">
+                  <path d="M7 1L8.8 4.8L13 5.4L10 8.3L10.7 12.5L7 10.5L3.3 12.5L4 8.3L1 5.4L5.2 4.8L7 1Z" fill="currentColor"/>
+                </svg>
+                <span>{{ r.metafields.reviews.rating.value.rating | round: 1 }}</span>
+              </span>
+            {%- endif -%}
+          </div>
+        </div>
+      </div>
+    {%- endfor -%}
+
+    <button type="button" class="sai-pb3tmxq9__cta sai-pb3tmxq9__cta--vertical" data-fbt-cta>
+      <span data-fbt-cta-label>{{ cta_label }} ({{ total_count }})</span>
+      {%- if show_total_price -%}
+        <span class="sai-pb3tmxq9__total sai-pb3tmxq9__total--inline">
+          <span class="sai-pb3tmxq9__total-inline-label">{{ total_label }}</span>
+          <span class="sai-pb3tmxq9__total-separator" aria-hidden="true">—</span>
+          <span class="sai-pb3tmxq9__total-amount" data-fbt-total></span>
+        </span>
+      {%- endif -%}
+      <span class="sai-pb3tmxq9__loader" data-fbt-loader hidden aria-hidden="true">
+        <svg class="sai-pb3tmxq9__spinner" viewBox="0 0 24 24" fill="none" focusable="false">
+          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" stroke-width="3"/>
+          <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </span>
+    </button>
+
+    <div class="sai-pb3tmxq9__error" data-fbt-error role="alert" hidden></div>
+
+    {%- endif -%}
+
+    {%- comment -%}
+      JSON payload. Per-value `| json` is mandatory inside <script type="application/json">:
+      Liquid's `| json` filter unicode-escapes `<`, `>`, line separators, so
+      values containing `</script>` or `<!--` survive intact as JSON but
+      cannot terminate the surrounding <script> element. The JS reads this
+      once on init and builds an id-keyed Map for O(1) lookup.
+    {%- endcomment -%}
+    <script type="application/json" data-fbt-payload>
+{
+  "main": {{ product.id | json }},
+  "currency": {{ shop.currency | json }},
+  "afterAddAction": {{ after_add_action | json }},
+  {%- comment -%} Omit the main product from `order` when excluded (unlocked + hidden) so the JS builds no row for it — it's neither counted nor added. The main object stays in `products` below (an unused map entry; the JS only builds rows from `order`). {%- endcomment -%}
+  "order": [{%- assign order_emitted = false -%}{%- if include_main -%}{{ product.id | json }}{%- assign order_emitted = true -%}{%- endif -%}{%- for handle in fbt_handles -%}{%- assign r = all_products[handle] -%}{%- if r == empty -%}{%- continue -%}{%- endif -%}{%- if order_emitted -%},{%- endif -%}{{ r.id | json }}{%- assign order_emitted = true -%}{%- endfor -%}],
+  "products": [
+    {
+      "id": {{ product.id | json }},
+      "title": {{ product.title | json }},
+      "url": {{ product.url | json }},
+      "imageUrl": {%- if product.featured_image -%}{{ product.featured_image | image_url: width: 400 | json }}{%- else -%}null{%- endif -%},
+      "price": {{ product.price | json }},
+      "compareAtPrice": {{ product.compare_at_price | json }},
+      "options": {{ product.options | json }},
+      "available": {{ product.available | json }},
+      "variants": [
+        {%- for v in product.variants -%}
+          {%- unless forloop.first -%},{%- endunless -%}
+          {
+            "id": {{ v.id | json }},
+            "title": {{ v.title | json }},
+            "price": {{ v.price | json }},
+            "compareAtPrice": {{ v.compare_at_price | json }},
+            "available": {{ v.available | json }},
+            "options": {{ v.options | json }},
+            "inventoryQty": {{ v.inventory_quantity | json }},
+            "inventoryManaged": {{ v.inventory_management | json }}
+          }
+        {%- endfor -%}
+      ]
+    }
+    {%- for handle in fbt_handles -%}
+    {%- assign r = all_products[handle] -%}
+    {%- if r == empty -%}{%- continue -%}{%- endif -%}
+    ,
+    {
+      "id": {{ r.id | json }},
+      "title": {{ r.title | json }},
+      "url": {{ r.url | json }},
+      "imageUrl": {%- if r.featured_image -%}{{ r.featured_image | image_url: width: 400 | json }}{%- else -%}null{%- endif -%},
+      "price": {{ r.price | json }},
+      "compareAtPrice": {{ r.compare_at_price | json }},
+      "options": {{ r.options | json }},
+      "available": {{ r.available | json }},
+      "variants": [
+        {%- for v in r.variants -%}
+          {%- unless forloop.first -%},{%- endunless -%}
+          {
+            "id": {{ v.id | json }},
+            "title": {{ v.title | json }},
+            "price": {{ v.price | json }},
+            "compareAtPrice": {{ v.compare_at_price | json }},
+            "available": {{ v.available | json }},
+            "options": {{ v.options | json }},
+            "inventoryQty": {{ v.inventory_quantity | json }},
+            "inventoryManaged": {{ v.inventory_management | json }}
+          }
+        {%- endfor -%}
+      ]
+    }
+    {%- endfor -%}
+  ]
+}
+    </script>
+  </div>
+</sai-pb3tmxq9>
+{%- endfor -%}
+
+{%- endif -%}
