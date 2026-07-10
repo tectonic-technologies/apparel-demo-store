@@ -206,7 +206,7 @@
             "sai_virtual_try_on": {
               "type": "custom-liquid",
               "settings": {
-                "custom_liquid": "{% comment %} Virtual try-on: flush the button to full width (no left/right inset), scoped to the stable virtual_try_on feature hook so it survives snippet-id churn. {% endcomment %}<style>[data-spectrum-feature-slug=\"virtual_try_on\"],[data-spectrum-feature-slug=\"virtual_try_on\"] > *{margin-inline:0;padding-inline:0;inline-size:100%}[data-spectrum-feature-slug=\"virtual_try_on\"] button{inline-size:100%}</style>{% render '_sai-foenfu1ocs552m89j8sxp82r', sai_state: 'draft' %}"
+                "custom_liquid": "{% comment %} Virtual try-on: strip the container's left/right padding so the button fills the width. The cream box + padding is per-instance config baked into the wrapper's metaobject <style>, which wins on specificity, so this uses !important after the render. Scoped to the stable virtual_try_on hook to survive snippet-id churn. {% endcomment %}{% render '_sai-foenfu1ocs552m89j8sxp82r', sai_state: 'draft' %}<style>[data-spectrum-feature-slug=\"virtual_try_on\"],[data-spectrum-feature-slug=\"virtual_try_on\"] > *{padding-inline:0 !important;margin-inline:0 !important}[data-spectrum-feature-slug=\"virtual_try_on\"] button{inline-size:100% !important}</style>"
               },
               "blocks": {}
             },
