@@ -1,0 +1,152 @@
+{%- comment -%}
+  AUTO-GENERATED. Spectrum runtime artifacts loader.
+  Rendered from layout/theme.liquid via the SPECTRUM_AI_INFRA block.
+  Source: packages/snippet-library/_sai-artifacts.liquid
+  Update the source file; the install pipeline rewrites this snippet on every
+  Studio open. DO NOT EDIT THE THEME COPY.
+{%- endcomment -%}
+<style data-spectrum-vis-gate>[data-spectrum-lq-snippet]:not([data-spectrum-vis="on"]){display:none !important}</style>
+<script src="{{ 'spectrum-sdk.js' | asset_url }}" defer></script>
+{%- comment -%}
+  Motion runtime asset URLs (fingerprinted by asset_url). A dedicated global,
+  NOT window.__spectrumAi: this snippet renders before content_for_header, so
+  the app-embed config script (which assigns window.__spectrumAi wholesale)
+  runs after it and would clobber any key parked there. Host scripts inject
+  the loader lazily from loaderUrl only when a resolved entry declares motion
+  — motionless pages never fetch either file.
+{%- endcomment -%}
+<script data-spectrum-motion-assets>window.__spectrumMotionAssets={loaderUrl:{{ 'spectrum-motion-loader.js' | asset_url | json }},engineUrl:{{ 'spectrum-motion-engine.js' | asset_url | json }}};</script>
+
+{% stylesheet %}
+@property --sai-color-fg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #121212;
+}
+@property --sai-color-bg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ffffff;
+}
+@property --sai-color-primary {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #121212;
+}
+@property --sai-color-primary-fg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ffffff;
+}
+@property --sai-color-error {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #c53030;
+}
+@property --sai-color-error-fg {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ffffff;
+}
+
+:where(html) {
+  /* ───── Size ramp (open-props inspired) ───── */
+  --sai-size-1: .25rem;
+  --sai-size-2: .5rem;
+  --sai-size-3: .75rem;
+  --sai-size-4: 1rem;
+  --sai-size-5: 1.5rem;
+  --sai-size-6: 2rem;
+  --sai-size-7: 3rem;
+  --sai-size-8: 4rem;
+
+  /* ───── Radii (numeric + semantic with Shopify bridges) ───── */
+  --sai-radius-1: 2px;
+  --sai-radius-2: 4px;
+  --sai-radius-3: 8px;
+  --sai-radius-4: 16px;
+  --sai-radius-round: 999px;
+
+  --sai-radius-sm: var(--sai-radius-1);
+  /* Opportunistic bridge to Shopify where ~universal */
+  --sai-radius-md: var(--buttons-radius, var(--sai-radius-2));
+  --sai-radius-lg: var(--media-radius, var(--sai-radius-3));
+
+  /* ───── Shadows (primitive + derived) ───── */
+  --sai-shadow-color: 220 3% 15%;
+  --sai-shadow-strength: 1%;
+  --sai-shadow-1: 0 1px 2px -1px
+    hsl(var(--sai-shadow-color) / calc(9% + var(--sai-shadow-strength)));
+  --sai-shadow-2: 0 3px 5px -2px
+    hsl(var(--sai-shadow-color) / calc(9% + var(--sai-shadow-strength)));
+  --sai-shadow-3: 0 8px 16px -4px
+    hsl(var(--sai-shadow-color) / calc(10% + var(--sai-shadow-strength)));
+
+  /* ───── Motion ───── */
+  --sai-ease-out-1: cubic-bezier(0.25, 0, 0.3, 1);
+  --sai-ease-in-out-1: cubic-bezier(0.5, 0, 0.5, 1);
+  --sai-ease-elastic: cubic-bezier(0.5, 1.25, 0.75, 1.25);
+  --sai-duration-1: 120ms;
+  --sai-duration-2: 200ms;
+  --sai-duration-3: 320ms;
+
+  /* ───── Layout ───── */
+  --sai-page-width: var(--page-width, 120rem);
+
+  /* Color bridges — chained bets across Shopify conventions, terminating in
+     Spectrum literals. Authors reference --sai-color-* only. Values resolve
+     inside a .color-{scheme.id} scope (inherited from the host Shopify
+     section); outside that scope the literal fallback wins. */
+  --sai-color-bg: var(--color-body-background, rgb(var(--color-background, 255, 255, 255)));
+  --sai-color-fg: var(--color-text, rgb(var(--color-foreground, 18, 18, 18)));
+  --sai-color-primary: var(--color-button, rgb(var(--color-primary, 18, 18, 18)));
+  --sai-color-primary-fg: var(
+    --color-button-text,
+    rgb(var(--color-primary-contrast, 255, 255, 255))
+  );
+  --sai-color-link: var(--color-link, var(--sai-color-primary));
+  --sai-color-error: var(--color-error, #c53030);
+  --sai-color-error-fg: var(--color-error-contrast, #ffffff);
+
+  /* Typography bridges — Dawn-ish names with `inherit` as terminus so snippets
+     gracefully pick up ancestor typography on any theme. */
+  --sai-font-body: var(--font-body-family, inherit);
+  --sai-font-body-style: var(--font-body-style, inherit);
+  --sai-font-body-weight: var(--font-body-weight, inherit);
+  --sai-font-body-weight-bold: var(--font-body-weight-bold, 700);
+  --sai-font-heading: var(--font-heading-family, var(--sai-font-body));
+  --sai-font-heading-style: var(--font-heading-style, inherit);
+  --sai-font-heading-weight: var(--font-heading-weight, bold);
+}
+
+/* Shared spinner utility — sized by --sai-spinner-size (default 1em).
+   Color via --sai-spinner-color. Respects prefers-reduced-motion. */
+.sai-spinner {
+  --sai-spinner-size: 1em;
+  --sai-spinner-color: currentColor;
+  --sai-spinner-track: color-mix(in srgb, currentColor 25%, transparent);
+  --sai-spinner-thickness: 2px;
+  --sai-spinner-speed: 0.8s;
+
+  display: inline-block;
+  width: var(--sai-spinner-size);
+  height: var(--sai-spinner-size);
+  border: var(--sai-spinner-thickness) solid var(--sai-spinner-track);
+  border-top-color: var(--sai-spinner-color);
+  border-radius: 50%;
+  animation: sai-spinner-spin var(--sai-spinner-speed) linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes sai-spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-spinner {
+    animation-duration: 2.4s;
+  }
+}
+{% endstylesheet %}
