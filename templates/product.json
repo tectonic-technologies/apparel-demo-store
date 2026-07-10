@@ -410,10 +410,15 @@
     "sai_section_v2dbks8d": {
       "type": "sai-section-v2dbks8d",
       "settings": {}
+    },
+    "sai_section_qxtc2ie9": {
+      "type": "sai-section-qxtc2ie9",
+      "settings": {}
     }
   },
   "order": [
     "sai_section_v2dbks8d",
+    "sai_section_qxtc2ie9",
     "main",
     "product_recommendations_qggXJq"
   ]
