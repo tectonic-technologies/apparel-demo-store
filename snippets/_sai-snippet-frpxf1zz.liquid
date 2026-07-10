@@ -1,0 +1,2126 @@
+{% doc %}
+  PDP Similar Products — product grid sourced from the
+  `spectrum.recommendations_similar_products_live` product metafield
+  (substitute-intent recommendations written by the Similar Products LLM
+  playbook). PDP-only. Off-PDP the snippet hides silently (no anchor
+  product).
+
+  Server-rendering: this snippet does NOT iterate products in Liquid. The
+  metafield carries product handles only — the cards (image, title, price,
+  swatches, variants) need full product objects, which the runtime fetches
+  per handle via `Spectrum.products.getByHandle(handle)` on first paint.
+  The snippet SSRs an N-card skeleton plus a hidden `<template>` carrying
+  one card's worth of markup, and the runtime JS clones the template once
+  per resolved product.
+
+  Empty / error path: when the metafield is missing or its default entry has
+  no recommendations, the SSR guard skips the snippet body entirely — no
+  skeleton, no script tag. When handles are present but every per-handle
+  product fetch fails at runtime, the JS flips `data-spectrum-vis="off"` on
+  the snippet's outer wrapper; the fail-closed gate installed by
+  `_sai-artifacts.liquid` then hides the entire snippet.
+
+  @param {Object} variant - The resolved default variant of the snippet
+    instance. Read at `variant.content` for typed prop values (heading,
+    description, product_count, layout, etc.).
+  @param {Object} mo - The `spectrum_snippet_instance` metaobject drop.
+    Unused by this snippet body — product data comes from the
+    recommendations metafield + per-handle product fetches at runtime, not
+    from a typed reference pool.
+  @param {String} mutation_handle - Stable handle for this instance. Consumed
+    by the wrapper outer div only; not read inside this snippet body.
+  @param {String} experience_handle - Studio experience handle. Consumed by
+    the wrapper outer div; not read inside this snippet body.
+{% enddoc %}
+
+{%- comment -%}
+  PDP Similar Products — metafield-sourced product grid, client-rendered.
+
+  Wrapper contract (per docs/tech/studio-liquid-snippets.md and
+  packages/liquid-parser/src/snippet-instance-wrapper.ts):
+    - variant            default variant from mo.variants.value.variants
+    - mo                 spectrum_snippet_instance metaobject drop
+    - mutation_handle    consumed by wrapper outer div
+    - experience_handle  consumed by wrapper outer div
+
+  variant.content fields:
+    - heading              string                section title
+    - description          string                section description
+    - product_count        integer 1..10         how many similar products
+                           to request (Shopify caps the API limit at 10)
+    - list_layout          'grid' | 'carousel' | 'list'
+    - cards_per_row        { mobile, tablet?, desktop? } each integer 1..6 (mobile-first cascade)
+    - progress_indicator   'none'|'scroll_bar'|'dots'|'stepper' (carousel only)
+    - carousel_arrows      boolean        (carousel only)
+    - image_aspect_ratio   '1/1' | '3/4' | '4/3'
+    - image_object_fit     'cover' | 'contain'
+    - image_mode           'single' | 'carousel'
+    - show_image_dots      boolean
+    - image_dots_position  'left' | 'center' | 'right'    placement of the image-carousel dot strip
+    - title_lines          '1' | '2' | '3' | 'wrap'
+    - show_price_label, show_current_price, show_mrp, show_discount, show_cta : booleans
+    - price_label_text     string
+    - cta_label            string
+    - enable_navigate_to_pdp boolean                      when true, CTA navigates to PDP and Mini-PDP modal is suppressed
+    - show_swatches        boolean
+    - swatch_option_name   string                option name to source swatches from (case-insensitive)
+    - swatch_max_visible   { mobile, tablet?, desktop? } 1..12, cap before "+N" overflow chip
+    - swatch_shape         'circle' | 'square'
+
+  Card structure (cloned by JS from `<template data-sai-card-template>`)
+    <div .__card>                            ← shell, not interactive itself
+      <a .__card-link href=PDP>              ← image + title + price area, click → PDP
+        <div .__image-zone>                  ← aspect-ratio container
+          <img .__image>     OR              ← image_mode = 'single'
+          <div .__image-track>...slides...   ← image_mode = 'carousel'
+        </div>
+        <div .__body>
+          <h3 .__title>
+          [.__swatches] (when show_swatches)
+          <div .__price-block>
+            [.__price-label] [.__price-current] [.__price-mrp] [.__price-discount]
+          </div>
+        </div>
+      </a>
+      [<a .__cta href=PDP>label</a>]         ← sibling so we don't nest <a> in <a>
+
+  Mini-PDP data: when navigate-to-PDP is off, the JS fetches /products/{handle}.js
+  on first modal open per product and caches the response in a module-scope Map.
+  No per-card `<script data-spectrum-atc-data>` blob is SSR'd because we don't
+  have the products at server-render time.
+
+  Anchor product: the PDP `product` global is read once to emit the anchor
+  product id into the config block. Off-PDP, `product` is nil and the JS
+  silently hides the wrapper on bind.
+
+  NOTE: do not write literal Liquid tag syntax in documentation text — the
+  catalog import balance check rejects nested `comment` / `doc` / control tags.
+{%- endcomment -%}
+
+{% stylesheet %}
+/* Featured Collection — aggregated into spectrum-snippet.css at install */
+
+/* Container ─────────────────────────────────────────────────── */
+.sai-frpxf1zz {
+  display: block;
+  width: 100%;
+  color: var(--sai-color-fg);
+  font-family: var(--sai-font-body);
+}
+
+/* Heading + description.  Explicit font-size + color — many merchant themes
+   reset bare <h2>/<p> to inherited or zero sizing via class-targeted rules
+   (`.h2`, `.heading`, etc.). The `display: block !important` defends against
+   themes that hide unclassed headings outright. */
+.sai-frpxf1zz__heading {
+  display: block !important;
+  margin: 0 0 var(--sai-size-2);
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.5rem;
+  line-height: 1.3;
+  color: var(--sai-color-fg);
+}
+
+.sai-frpxf1zz__description {
+  margin: 0 0 var(--sai-size-5);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--sai-color-fg);
+}
+
+/* Layout wrapper. Carousel mode: stacks the carousel frame above the
+   indicator strip. */
+.sai-frpxf1zz__layout {
+  display: block;
+}
+
+/* Carousel frame — wraps the scroller + arrows. Provides the positioning
+   context that the absolutely-positioned arrows need so they sit centred
+   over the carousel itself, not over the indicator strip below. */
+.sai-frpxf1zz__frame {
+  position: relative;
+}
+
+/* Grid (default) ───────────────────────────────────────────── */
+/* Cards-per-row reads three viewport-keyed CSS vars set inline on this
+ * element by the Liquid template (`--sai-frpxf1zz-cpr-m/-t/-d`). Mobile is
+ * the base (no media query); tablet and desktop overrides kick in at the
+ * same Dawn-aligned breakpoints used by the rest of this snippet's static
+ * styles (750 / 990). */
+.sai-frpxf1zz__grid--grid {
+  display: grid;
+  grid-template-columns: repeat(var(--sai-frpxf1zz-cpr-m, 2), 1fr);
+  gap: var(--sai-size-4);
+}
+
+@media (min-width: 750px) {
+  .sai-frpxf1zz__grid--grid {
+    grid-template-columns: repeat(var(--sai-frpxf1zz-cpr-t, 3), 1fr);
+  }
+}
+
+@media (min-width: 990px) {
+  .sai-frpxf1zz__grid--grid {
+    grid-template-columns: repeat(var(--sai-frpxf1zz-cpr-d, 4), 1fr);
+  }
+}
+
+/* Carousel ────────────────────────────────────────────────── */
+.sai-frpxf1zz__grid--carousel {
+  display: flex;
+  flex-direction: row;
+  gap: var(--sai-size-4);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sai-frpxf1zz__grid--carousel::-webkit-scrollbar {
+  display: none;
+}
+
+.sai-frpxf1zz__grid--carousel > .sai-frpxf1zz__card {
+  flex: 0 0
+    calc(
+      (100% - (var(--sai-frpxf1zz-cpr-m, 2) - 1) * var(--sai-size-4)) /
+      var(--sai-frpxf1zz-cpr-m, 2)
+    );
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+@media (min-width: 750px) {
+  .sai-frpxf1zz__grid--carousel > .sai-frpxf1zz__card {
+    flex: 0 0
+      calc(
+        (100% - (var(--sai-frpxf1zz-cpr-t, 3) - 1) * var(--sai-size-4)) /
+        var(--sai-frpxf1zz-cpr-t, 3)
+      );
+  }
+}
+
+@media (min-width: 990px) {
+  .sai-frpxf1zz__grid--carousel > .sai-frpxf1zz__card {
+    flex: 0 0
+      calc(
+        (100% - (var(--sai-frpxf1zz-cpr-d, 4) - 1) * var(--sai-size-4)) /
+        var(--sai-frpxf1zz-cpr-d, 4)
+      );
+  }
+}
+
+/* List ─────────────────────────────────────────────────────── */
+.sai-frpxf1zz__grid--list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-4);
+}
+
+/* Carousel controls ────────────────────────────────────────── */
+.sai-frpxf1zz__controls {
+  margin-top: var(--sai-size-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sai-size-3);
+  color: var(--sai-color-fg);
+}
+
+.sai-frpxf1zz__arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 12%, transparent);
+  border-radius: 999px;
+  box-shadow: var(--sai-shadow-1);
+  cursor: pointer;
+  z-index: 2;
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__arrow svg {
+  width: 16px;
+  height: 16px;
+}
+.sai-frpxf1zz__arrow--prev {
+  left: var(--sai-size-2);
+}
+.sai-frpxf1zz__arrow--next {
+  right: var(--sai-size-2);
+}
+.sai-frpxf1zz__arrow:disabled,
+.sai-frpxf1zz__arrow[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+.sai-frpxf1zz__arrow:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--sai-color-bg) 92%, var(--sai-color-fg));
+}
+
+@media (min-width: 750px) {
+  .sai-frpxf1zz__layout--carousel .sai-frpxf1zz__arrow {
+    display: inline-flex;
+  }
+}
+
+/* Page-level dots ─────────────────────────────────────────── */
+.sai-frpxf1zz__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sai-size-2);
+  padding: 0;
+}
+.sai-frpxf1zz__dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  background: color-mix(in srgb, var(--sai-color-fg) 25%, transparent);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1), transform
+    var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__dot.is-active {
+  background: var(--sai-color-fg);
+  transform: scale(1.3);
+}
+
+/* Scroll bar ──────────────────────────────────────────────── */
+.sai-frpxf1zz__scrollbar {
+  position: relative;
+  width: min(240px, 60%);
+  height: 3px;
+  background: color-mix(in srgb, var(--sai-color-fg) 12%, transparent);
+  border-radius: 999px;
+  overflow: hidden;
+}
+/* The thumb is an empty <div>; merchant themes (Horizon/Dawn) ship
+   `div:empty { display: none }` (specificity 0,1,1) which would collapse it to
+   0×0 and the scroll-position indicator would silently never appear. Scoping
+   under `.__scrollbar` lifts this to (0,2,0) so it outranks that reset WITHOUT
+   `!important` — per-instance baked rules (0,3,0) still win the cascade. */
+.sai-frpxf1zz__scrollbar .sai-frpxf1zz__scrollbar-thumb {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 25%;
+  background: var(--sai-color-fg);
+  border-radius: 999px;
+  transform: translateX(0%);
+  transition: transform var(--sai-duration-2) var(--sai-ease-out-1);
+}
+
+/* Stepper ─────────────────────────────────────────────────── */
+.sai-frpxf1zz__stepper {
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--sai-color-fg) 70%, transparent);
+}
+
+/* Card shell ───────────────────────────────────────────────── */
+.sai-frpxf1zz__card {
+  display: flex;
+  flex-direction: column;
+  /* Cards in the same grid row stretch to equal height via CSS Grid's default
+     align-items: stretch. `justify-content: space-between` pushes the CTA to
+     the card's bottom edge so a card with a short title doesn't end up with
+     its ATC button floating mid-card next to siblings with longer titles. */
+  justify-content: space-between;
+  gap: var(--sai-size-3);
+  padding: var(--sai-size-3);
+  background: transparent;
+  border-radius: var(--sai-radius-lg);
+  transition: box-shadow var(--sai-duration-2) var(--sai-ease-out-1), transform
+    var(--sai-duration-2) var(--sai-ease-out-1);
+}
+
+.sai-frpxf1zz__card:hover {
+  box-shadow: var(--sai-shadow-2);
+  transform: translateY(-2px);
+}
+
+.sai-frpxf1zz__card-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Image zone ───────────────────────────────────────────────── */
+.sai-frpxf1zz__image-zone {
+  position: relative;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--sai-radius-md);
+  background: color-mix(in srgb, var(--sai-color-fg) 6%, transparent);
+}
+
+.sai-frpxf1zz__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transition: transform var(--sai-duration-3) var(--sai-ease-out-1);
+}
+
+.sai-frpxf1zz__card:hover .sai-frpxf1zz__image {
+  transform: scale(1.03);
+}
+
+/* Per-card image carousel ─────────────────────────────────── */
+.sai-frpxf1zz__image-zone--carousel {
+  position: relative;
+  padding: 0;
+}
+
+.sai-frpxf1zz__image-track {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sai-frpxf1zz__image-track::-webkit-scrollbar {
+  display: none;
+}
+
+.sai-frpxf1zz__image-slide {
+  position: relative;
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+/* Disable card-level hover zoom in carousel mode — fights swipe. */
+.sai-frpxf1zz__card:hover .sai-frpxf1zz__image-zone--carousel .sai-frpxf1zz__image {
+  transform: none;
+}
+
+/* Image dots — `data-position` is set by the snippet from the
+ * `image_dots_position` prop. Default (center) keeps the existing
+ * 50%/translateX strategy; left/right anchor to the same inset and
+ * drop the centering transform. */
+.sai-frpxf1zz__image-dots {
+  position: absolute;
+  bottom: var(--sai-size-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgb(0 0 0 / 0.35);
+  border-radius: 999px;
+  pointer-events: auto;
+  z-index: 1;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.sai-frpxf1zz__image-dots[data-position="left"] {
+  left: var(--sai-size-2);
+  right: auto;
+  transform: none;
+}
+.sai-frpxf1zz__image-dots[data-position="right"] {
+  left: auto;
+  right: var(--sai-size-2);
+  transform: none;
+}
+.sai-frpxf1zz__image-dot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  background: rgb(255 255 255 / 0.55);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1), transform
+    var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__image-dot.is-active {
+  background: #fff;
+  transform: scale(1.35);
+}
+
+/* Body ─────────────────────────────────────────────────────── */
+.sai-frpxf1zz__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+}
+
+.sai-frpxf1zz__title {
+  margin: 0;
+  font-family: var(--sai-font-body);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 0.9375rem;
+  line-height: 1.35;
+  color: var(--sai-color-fg);
+  display: -webkit-box !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2;
+  overflow: hidden !important;
+}
+
+.sai-frpxf1zz__title[data-title-lines="1"] {
+  -webkit-line-clamp: 1;
+}
+.sai-frpxf1zz__title[data-title-lines="2"] {
+  -webkit-line-clamp: 2;
+}
+.sai-frpxf1zz__title[data-title-lines="3"] {
+  -webkit-line-clamp: 3;
+}
+.sai-frpxf1zz__title[data-title-lines="wrap"] {
+  display: block !important;
+  overflow: visible !important;
+  -webkit-line-clamp: unset;
+}
+
+/* Swatches ─────────────────────────────────────────────────── *
+ * Per-viewport visibility is driven by `data-hide-m/-t/-d`
+ * attributes baked at render time. Mobile is the base (those with
+ * `data-hide-m` are hidden on mobile); tablet and desktop overrides
+ * use the same Dawn-aligned 750 / 990 breakpoints as the rest of
+ * this snippet's static CSS. The three `--m/-t/-d` overflow chips
+ * are independently gated so only the active viewport's chip shows. */
+.sai-frpxf1zz__swatches {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--sai-size-2);
+  margin-top: var(--sai-size-1);
+}
+
+.sai-frpxf1zz__swatch {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  background-color: color-mix(in srgb, var(--sai-color-fg) 8%, var(--sai-color-bg));
+  background-size: cover;
+  background-position: center;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 18%, transparent);
+}
+
+.sai-frpxf1zz__swatches--circle .sai-frpxf1zz__swatch {
+  border-radius: 999px;
+}
+
+.sai-frpxf1zz__swatches--square .sai-frpxf1zz__swatch {
+  border-radius: 2px;
+}
+
+.sai-frpxf1zz__swatch-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1;
+  color: color-mix(in srgb, var(--sai-color-fg) 70%, transparent);
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--sai-color-fg) 8%, var(--sai-color-bg));
+}
+
+/* Per-viewport gating. Mobile is the base — `data-hide-m` swatches and the
+ * tablet/desktop overflow chips are hidden by default. Each `@media` block
+ * un-hides the next viewport's set and hides the previous viewport's chip. */
+.sai-frpxf1zz__swatch[data-hide-m],
+.sai-frpxf1zz__swatch-more--t,
+.sai-frpxf1zz__swatch-more--d {
+  display: none;
+}
+
+@media (min-width: 750px) {
+  .sai-frpxf1zz__swatch[data-hide-m] {
+    display: inline-block;
+  }
+  .sai-frpxf1zz__swatch[data-hide-t] {
+    display: none;
+  }
+  .sai-frpxf1zz__swatch-more--m {
+    display: none;
+  }
+  .sai-frpxf1zz__swatch-more--t {
+    display: inline-flex;
+  }
+}
+
+@media (min-width: 990px) {
+  .sai-frpxf1zz__swatch[data-hide-t] {
+    display: inline-block;
+  }
+  .sai-frpxf1zz__swatch[data-hide-d] {
+    display: none;
+  }
+  .sai-frpxf1zz__swatch-more--t {
+    display: none;
+  }
+  .sai-frpxf1zz__swatch-more--d {
+    display: inline-flex;
+  }
+}
+
+/* Price block ──────────────────────────────────────────────── */
+.sai-frpxf1zz__price-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-1);
+}
+
+.sai-frpxf1zz__price-label {
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--sai-color-fg) 60%, transparent);
+}
+
+.sai-frpxf1zz__price-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--sai-size-2);
+  align-items: baseline;
+}
+
+.sai-frpxf1zz__price-current {
+  font-size: 1rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  color: var(--sai-color-fg);
+}
+
+.sai-frpxf1zz__price-mrp {
+  font-size: 0.8125rem;
+  color: color-mix(in srgb, var(--sai-color-fg) 50%, transparent);
+  text-decoration: line-through;
+}
+
+.sai-frpxf1zz__price-discount {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--sai-color-error, #1d9e75);
+  padding: 0;
+  background: transparent;
+  border-radius: var(--sai-radius-sm);
+}
+
+/* CTA ─────────────────────────────────────────────────────── */
+.sai-frpxf1zz__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--sai-size-2) var(--sai-size-3);
+  font-family: var(--sai-font-body);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-align: center;
+  text-decoration: none;
+  color: var(--sai-color-primary-fg);
+  background: var(--sai-color-primary);
+  border: none;
+  border-radius: var(--sai-radius-md);
+  cursor: pointer;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-frpxf1zz__cta:hover,
+.sai-frpxf1zz__cta:focus-visible {
+  background: color-mix(in srgb, var(--sai-color-primary) 88%, var(--sai-color-fg));
+}
+
+/* Sold-out: every variant on this product returned `available: false`.
+   The JS swaps the label to the merchant-configured sold-out copy and adds
+   `is-soldout` + `aria-disabled`.  Dimmed, no hover affordance, no clicks. */
+.sai-frpxf1zz__cta.is-soldout,
+.sai-frpxf1zz__cta[aria-disabled="true"] {
+  background: color-mix(in srgb, var(--sai-color-fg) 14%, var(--sai-color-bg));
+  color: color-mix(in srgb, var(--sai-color-fg) 55%, transparent);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Mini-PDP — full quick-view modal
+   Mobile (< 750px): bottom sheet.  Desktop: centred modal.
+   ───────────────────────────────────────────────────────────── */
+.sai-frpxf1zz__pdp {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  font-family: var(--sai-font-body);
+  color: var(--sai-color-fg);
+}
+.sai-frpxf1zz__pdp[hidden] {
+  display: none;
+}
+
+.sai-frpxf1zz__pdp-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 0.5);
+  animation: sai-frpxf1zz-fade-in var(--sai-duration-2) var(--sai-ease-out-1);
+}
+
+.sai-frpxf1zz__pdp-panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-height: 92vh;
+  overflow-y: auto;
+  background: var(--sai-color-bg);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 32px rgb(0 0 0 / 0.18);
+  animation: sai-frpxf1zz-slide-up var(--sai-duration-2) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__pdp--radius-sharp .sai-frpxf1zz__pdp-panel {
+  border-radius: 0;
+}
+
+@media (min-width: 750px) {
+  .sai-frpxf1zz__pdp {
+    align-items: center;
+  }
+  .sai-frpxf1zz__pdp-panel {
+    max-height: 88vh;
+    border-radius: 16px;
+    box-shadow: 0 12px 48px rgb(0 0 0 / 0.24);
+    animation: sai-frpxf1zz-fade-in var(--sai-duration-2) var(--sai-ease-out-1);
+  }
+  .sai-frpxf1zz__pdp--radius-sharp .sai-frpxf1zz__pdp-panel {
+    border-radius: 0;
+  }
+  .sai-frpxf1zz__pdp--width-sm .sai-frpxf1zz__pdp-panel {
+    width: min(640px, 92vw);
+  }
+  .sai-frpxf1zz__pdp--width-md .sai-frpxf1zz__pdp-panel {
+    width: min(880px, 92vw);
+  }
+  .sai-frpxf1zz__pdp--width-lg .sai-frpxf1zz__pdp-panel {
+    width: min(1080px, 92vw);
+  }
+}
+
+.sai-frpxf1zz__pdp-close {
+  position: absolute;
+  top: var(--sai-size-3);
+  right: var(--sai-size-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: rgb(255 255 255 / 0.9);
+  color: var(--sai-color-fg);
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 12%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  z-index: 3;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__pdp-close svg {
+  width: 14px;
+  height: 14px;
+}
+.sai-frpxf1zz__pdp-close:hover {
+  background: color-mix(in srgb, var(--sai-color-bg) 90%, var(--sai-color-fg));
+}
+
+.sai-frpxf1zz__pdp-layout {
+  display: flex;
+  flex-direction: column;
+}
+@media (min-width: 750px) {
+  .sai-frpxf1zz__pdp--gallery-carousel .sai-frpxf1zz__pdp-layout {
+    flex-direction: row;
+  }
+  .sai-frpxf1zz__pdp--gallery-carousel .sai-frpxf1zz__pdp-gallery {
+    flex: 1 1 50%;
+  }
+  .sai-frpxf1zz__pdp--gallery-carousel .sai-frpxf1zz__pdp-content {
+    flex: 1 1 50%;
+  }
+}
+
+/* Gallery */
+.sai-frpxf1zz__pdp-gallery {
+  position: relative;
+  width: 100%;
+  background: color-mix(in srgb, var(--sai-color-fg) 5%, transparent);
+  overflow: hidden;
+}
+/* List-mode (compact thumbnail) gallery — Frido-style header layout:
+   square thumbnail on the left, title + price on the right; secondary
+   content (variants / low stock / qty / description / CTAs) flows below
+   full-width. CSS Grid with `display: contents` on the inner content
+   wrapper lets us project all the children onto the grid as siblings of
+   the gallery so we can place each precisely while keeping the existing
+   Liquid markup. */
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-layout {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: start;
+  column-gap: var(--sai-size-4);
+  row-gap: var(--sai-size-3);
+  padding: var(--sai-size-4);
+}
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-gallery {
+  width: 140px;
+  height: 140px;
+  border-radius: 12px;
+  margin: 0;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-content {
+  display: contents;
+}
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-title {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  min-width: 0;
+  font-family: var(--sai-font-body);
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-price-row {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0;
+  min-width: 0;
+}
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-variants,
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-low-stock,
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-qty,
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-description,
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-ctas {
+  grid-column: 1 / -1;
+  margin: 0;
+  min-width: 0;
+}
+@media (min-width: 750px) {
+  .sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-layout {
+    grid-template-columns: 160px 1fr;
+  }
+  .sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-gallery {
+    width: 160px;
+    height: 160px;
+  }
+}
+
+/* Discount badge → pastel-green pill on its own line below the price. */
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-discount {
+  flex-basis: 100%;
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 4px 12px;
+  background: color-mix(in srgb, var(--sai-color-error, #1d9e75) 18%, transparent);
+  color: var(--sai-color-error, #1d9e75);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* List mode: keep the CTAs as a 2-up row (Add To Cart + Buy Now) at
+   equal widths so the full-width CTA strip below the thumbnail reads as a
+   single primary action row, not stacked buttons. */
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-ctas {
+  flex-direction: row;
+  gap: var(--sai-size-2);
+}
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-ctas > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.sai-frpxf1zz__pdp-track {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sai-frpxf1zz__pdp-track::-webkit-scrollbar {
+  display: none;
+}
+.sai-frpxf1zz__pdp-slide {
+  position: relative;
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+.sai-frpxf1zz__pdp-slide img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Chevrons */
+.sai-frpxf1zz__pdp-chevron {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgb(255 255 255 / 0.92);
+  color: var(--sai-color-fg);
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 12%, transparent);
+  border-radius: 999px;
+  box-shadow: var(--sai-shadow-1);
+  cursor: pointer;
+  z-index: 2;
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__pdp-chevron[hidden] {
+  display: none;
+}
+.sai-frpxf1zz__pdp-chevron svg {
+  width: 16px;
+  height: 16px;
+}
+.sai-frpxf1zz__pdp-chevron--prev {
+  left: var(--sai-size-3);
+}
+.sai-frpxf1zz__pdp-chevron--next {
+  right: var(--sai-size-3);
+}
+.sai-frpxf1zz__pdp-chevron:disabled,
+.sai-frpxf1zz__pdp-chevron[aria-disabled="true"] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Pagination dots */
+.sai-frpxf1zz__pdp-dots {
+  position: absolute;
+  left: 50%;
+  bottom: var(--sai-size-3);
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgb(0 0 0 / 0.4);
+  border-radius: 999px;
+  z-index: 1;
+}
+.sai-frpxf1zz__pdp-dots[hidden] {
+  display: none;
+}
+.sai-frpxf1zz__pdp-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  background: rgb(255 255 255 / 0.55);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1), transform
+    var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__pdp-dot.is-active {
+  background: #fff;
+  transform: scale(1.35);
+}
+
+/* Overlay actions */
+.sai-frpxf1zz__pdp-overlay-actions {
+  position: absolute;
+  top: var(--sai-size-3);
+  right: var(--sai-size-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+  z-index: 2;
+}
+.sai-frpxf1zz__pdp--gallery-list .sai-frpxf1zz__pdp-overlay-actions {
+  display: none;
+}
+.sai-frpxf1zz__pdp-share,
+.sai-frpxf1zz__pdp-view-product {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgb(255 255 255 / 0.92);
+  color: var(--sai-color-fg);
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 12%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__pdp-share svg,
+.sai-frpxf1zz__pdp-view-product svg {
+  width: 16px;
+  height: 16px;
+}
+.sai-frpxf1zz__pdp-share:hover,
+.sai-frpxf1zz__pdp-view-product:hover {
+  background: color-mix(in srgb, var(--sai-color-bg) 88%, var(--sai-color-fg));
+}
+
+/* Content zone */
+.sai-frpxf1zz__pdp-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  padding: var(--sai-size-4) var(--sai-size-4) var(--sai-size-5);
+}
+@media (min-width: 750px) {
+  .sai-frpxf1zz__pdp--gallery-carousel .sai-frpxf1zz__pdp-content {
+    padding: var(--sai-size-5) var(--sai-size-5);
+    overflow-y: auto;
+  }
+}
+
+/* Price row */
+.sai-frpxf1zz__pdp-price-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sai-size-2);
+}
+.sai-frpxf1zz__pdp-price-current {
+  font-size: 1.25rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  color: var(--sai-color-fg);
+}
+.sai-frpxf1zz__pdp-price-mrp[hidden] {
+  display: none;
+}
+.sai-frpxf1zz__pdp-price-mrp {
+  font-size: 0.875rem;
+  color: color-mix(in srgb, var(--sai-color-fg) 50%, transparent);
+  text-decoration: line-through;
+}
+.sai-frpxf1zz__pdp-discount[hidden] {
+  display: none;
+}
+.sai-frpxf1zz__pdp-discount {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--sai-color-error, #1d9e75);
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--sai-color-error, #1d9e75) 12%, transparent);
+  border-radius: var(--sai-radius-sm);
+}
+
+/* Title */
+.sai-frpxf1zz__pdp-title {
+  margin: 0;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.25rem;
+  line-height: 1.3;
+  color: var(--sai-color-fg);
+}
+@media (min-width: 750px) {
+  .sai-frpxf1zz__pdp--gallery-carousel .sai-frpxf1zz__pdp-title {
+    font-size: 1.5rem;
+  }
+}
+
+/* Variant selector */
+.sai-frpxf1zz__pdp-variants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sai-size-2);
+}
+.sai-frpxf1zz__pdp-variants--dropdown {
+  display: block;
+}
+.sai-frpxf1zz__pdp-variants--pill .sai-frpxf1zz__pdp-variant {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 38px;
+  padding: 6px 14px;
+  background: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 18%, transparent);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color var(--sai-duration-1) var(--sai-ease-out-1), background
+    var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__pdp-variants--pill .sai-frpxf1zz__pdp-variant.is-selected {
+  border-color: var(--sai-color-fg);
+  background: color-mix(in srgb, var(--sai-color-fg) 4%, transparent);
+}
+.sai-frpxf1zz__pdp-variants--pill .sai-frpxf1zz__pdp-variant:disabled,
+.sai-frpxf1zz__pdp-variants--pill .sai-frpxf1zz__pdp-variant[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+.sai-frpxf1zz__pdp-variants--swatch .sai-frpxf1zz__pdp-variant {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 10px;
+  background: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 18%, transparent);
+  border-radius: var(--sai-radius-sm);
+  cursor: pointer;
+}
+.sai-frpxf1zz__pdp-variants--swatch .sai-frpxf1zz__pdp-variant.is-selected {
+  border-color: var(--sai-color-fg);
+  background: color-mix(in srgb, var(--sai-color-fg) 4%, transparent);
+}
+.sai-frpxf1zz__pdp-variants--swatch .sai-frpxf1zz__pdp-variant:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+.sai-frpxf1zz__pdp-variants--dropdown select {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.9375rem;
+  background: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 18%, transparent);
+  border-radius: var(--sai-radius-md);
+  cursor: pointer;
+}
+.sai-frpxf1zz__pdp-variant-price {
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--sai-color-fg) 60%, transparent);
+}
+
+/* Low inventory */
+.sai-frpxf1zz__pdp-low-stock[hidden] {
+  display: none;
+}
+.sai-frpxf1zz__pdp-low-stock {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--sai-color-error, #d23f3f);
+}
+.sai-frpxf1zz__pdp-low-stock svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Quantity */
+.sai-frpxf1zz__pdp-qty {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-3);
+}
+.sai-frpxf1zz__pdp-qty-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--sai-color-fg);
+}
+.sai-frpxf1zz__pdp-qty-stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 18%, transparent);
+  border-radius: var(--sai-radius-md);
+  overflow: hidden;
+}
+.sai-frpxf1zz__pdp-qty-button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__pdp-qty-button:hover {
+  background: color-mix(in srgb, var(--sai-color-fg) 6%, transparent);
+}
+.sai-frpxf1zz__pdp-qty-input {
+  width: 44px;
+  height: 36px;
+  padding: 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-align: center;
+  background: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  border: none;
+  border-left: 1px solid color-mix(in srgb, var(--sai-color-fg) 18%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--sai-color-fg) 18%, transparent);
+  -moz-appearance: textfield;
+}
+.sai-frpxf1zz__pdp-qty-input::-webkit-outer-spin-button,
+.sai-frpxf1zz__pdp-qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Description */
+.sai-frpxf1zz__pdp-description--font-sm .sai-frpxf1zz__pdp-description-body {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.sai-frpxf1zz__pdp-description--font-md .sai-frpxf1zz__pdp-description-body {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+}
+.sai-frpxf1zz__pdp-description-body {
+  color: color-mix(in srgb, var(--sai-color-fg) 80%, transparent);
+}
+.sai-frpxf1zz__pdp-description--compact .sai-frpxf1zz__pdp-description-body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.sai-frpxf1zz__pdp-description--expandable.is-collapsed .sai-frpxf1zz__pdp-description-body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.sai-frpxf1zz__pdp-description-toggle[hidden] {
+  display: none;
+}
+.sai-frpxf1zz__pdp-description-toggle {
+  margin-top: 4px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--sai-color-fg);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* CTA buttons */
+.sai-frpxf1zz__pdp-ctas {
+  display: flex;
+  gap: var(--sai-size-3);
+  margin-top: auto;
+}
+.sai-frpxf1zz__pdp-ctas--side_by_side {
+  flex-direction: row;
+}
+.sai-frpxf1zz__pdp-ctas--side_by_side > * {
+  flex: 1 1 0;
+}
+.sai-frpxf1zz__pdp-ctas--stacked {
+  flex-direction: column;
+}
+@media (min-width: 750px) {
+  .sai-frpxf1zz__pdp--gallery-carousel .sai-frpxf1zz__pdp-ctas {
+    margin-top: var(--sai-size-4);
+  }
+}
+.sai-frpxf1zz__pdp-atc,
+.sai-frpxf1zz__pdp-buy-now {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 20px;
+  font-family: var(--sai-font-body);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  border-radius: var(--sai-radius-md);
+  cursor: pointer;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-frpxf1zz__pdp-atc {
+  background: var(--sai-color-primary);
+  color: var(--sai-color-primary-fg);
+  border: 1px solid var(--sai-color-primary);
+}
+.sai-frpxf1zz__pdp-atc:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--sai-color-primary) 88%, var(--sai-color-fg));
+}
+.sai-frpxf1zz__pdp-atc:disabled,
+.sai-frpxf1zz__pdp-buy-now:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.sai-frpxf1zz__pdp-buy-now {
+  background: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg) 35%, transparent);
+}
+.sai-frpxf1zz__pdp-buy-now:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--sai-color-fg) 4%, transparent);
+}
+
+/* Loading state — buttons that fire async cart writes set `aria-busy="true"`
+   while the request is in flight.  The label fades to transparent and a
+   rotating spinner overlays the center so the button stays clickable size
+   without text-jump. */
+.sai-frpxf1zz__cta[aria-busy="true"],
+.sai-frpxf1zz__pdp-atc[aria-busy="true"],
+.sai-frpxf1zz__pdp-buy-now[aria-busy="true"] {
+  color: transparent !important;
+  pointer-events: none;
+  position: relative;
+  opacity: 1 !important;
+  cursor: progress !important;
+}
+.sai-frpxf1zz__cta[aria-busy="true"]::after,
+.sai-frpxf1zz__pdp-atc[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2.5px solid var(--sai-color-primary-fg);
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 1;
+  animation: sai-frpxf1zz-spin 0.7s linear infinite;
+}
+.sai-frpxf1zz__pdp-buy-now[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2.5px solid var(--sai-color-fg);
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 1;
+  animation: sai-frpxf1zz-spin 0.7s linear infinite;
+}
+/* Skeleton shimmer — applied to image-zone + title + price-block on cards
+   carrying the `--skeleton` modifier (SSR'd loading placeholders, removed
+   from the DOM once their slot's resolved product is painted in). Uses a
+   single horizontal sweeping highlight in `currentColor` at low opacity
+   so the effect honours theme dark/light surfaces without needing a
+   second token. `will-change: background-position` lets the compositor
+   handle the gradient slide without repainting the card. Respects
+   `prefers-reduced-motion`. */
+.sai-frpxf1zz__card--skeleton .sai-frpxf1zz__image-zone,
+.sai-frpxf1zz__title--skeleton,
+.sai-frpxf1zz__price-block--skeleton {
+  position: relative;
+  background-color: color-mix(in srgb, var(--sai-color-fg) 8%, transparent);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--sai-color-fg) 6%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  background-position: 100% 0;
+  animation: sai-frpxf1zz-shimmer 1.4s linear infinite;
+  will-change: background-position;
+  overflow: hidden;
+}
+
+.sai-frpxf1zz__title--skeleton {
+  height: 0.9em;
+  border-radius: var(--sai-radius-sm);
+}
+.sai-frpxf1zz__title--skeleton[data-title-lines="2"] {
+  height: 2em;
+}
+.sai-frpxf1zz__title--skeleton[data-title-lines="3"] {
+  height: 3em;
+}
+.sai-frpxf1zz__price-block--skeleton {
+  height: 1.25em;
+  border-radius: var(--sai-radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-frpxf1zz__card--skeleton .sai-frpxf1zz__image-zone,
+  .sai-frpxf1zz__title--skeleton,
+  .sai-frpxf1zz__price-block--skeleton {
+    animation: none;
+    background-image: none;
+  }
+}
+
+@keyframes sai-frpxf1zz-shimmer {
+  from { background-position: 100% 0; }
+  to   { background-position: -100% 0; }
+}
+
+@keyframes sai-frpxf1zz-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sai-frpxf1zz-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sai-frpxf1zz-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.sai-frpxf1zz-body-locked {
+  overflow: hidden !important;
+}
+{% endstylesheet %}
+
+{%- assign content = variant.content -%}
+{%- assign heading = content.heading | default: '' -%}
+{%- assign description = content.description | default: '' -%}
+
+{%- comment -%}── Layout mode: whitelist, default grid ──{%- endcomment -%}
+{%- assign layout = content.list_layout | default: 'grid' -%}
+{%- unless layout == 'grid' or layout == 'carousel' or layout == 'list' -%}
+  {%- assign layout = 'grid' -%}
+{%- endunless -%}
+
+{%- comment -%}
+  Cards-per-row: viewport-keyed object `{ mobile, tablet?, desktop? }`. Mobile
+  is the cascade base. Each slot clamps to 1..6 with sensible defaults; tablet
+  and desktop fall back to the next-smaller viewport when unset so authors can
+  set one value and let the cascade flow.
+{%- endcomment -%}
+{%- assign cpr_raw = content.cards_per_row -%}
+{%- assign cpr_m = cpr_raw.mobile -%}
+{%- assign cpr_t = cpr_raw.tablet -%}
+{%- assign cpr_d = cpr_raw.desktop -%}
+{%- if cpr_m == nil or cpr_m == blank -%}{%- assign cpr_m = 2 -%}{%- endif -%}
+{%- if cpr_t == nil or cpr_t == blank -%}{%- assign cpr_t = cpr_m -%}{%- endif -%}
+{%- if cpr_d == nil or cpr_d == blank -%}{%- assign cpr_d = cpr_t -%}{%- endif -%}
+{%- if cpr_m < 1 -%}{%- assign cpr_m = 1 -%}{%- endif -%}
+{%- if cpr_m > 6 -%}{%- assign cpr_m = 6 -%}{%- endif -%}
+{%- if cpr_t < 1 -%}{%- assign cpr_t = 1 -%}{%- endif -%}
+{%- if cpr_t > 6 -%}{%- assign cpr_t = 6 -%}{%- endif -%}
+{%- if cpr_d < 1 -%}{%- assign cpr_d = 1 -%}{%- endif -%}
+{%- if cpr_d > 6 -%}{%- assign cpr_d = 6 -%}{%- endif -%}
+
+{%- comment -%}── Product count: clamp to 1..10 (Shopify recommendations API cap), default 8 ──{%- endcomment -%}
+{%- assign product_count = content.product_count -%}
+{%- if product_count == nil or product_count == blank -%}
+  {%- assign product_count = 8 -%}
+{%- endif -%}
+{%- if product_count < 1 -%}{%- assign product_count = 1 -%}{%- endif -%}
+{%- if product_count > 10 -%}{%- assign product_count = 10 -%}{%- endif -%}
+
+{%- comment -%}── Carousel-only options. Whitelisted; ignored when layout != 'carousel'. ──{%- endcomment -%}
+{%- assign indicator = content.progress_indicator | default: 'none' -%}
+{%- unless indicator == 'none' or indicator == 'scroll_bar' or indicator == 'dots' or indicator == 'stepper' -%}
+  {%- assign indicator = 'none' -%}
+{%- endunless -%}
+{%- if content.carousel_arrows == nil -%}{%- assign carousel_arrows = true -%}{%- else -%}{%- assign carousel_arrows = content.carousel_arrows -%}{%- endif -%}
+
+{%- comment -%}── Image aspect-ratio: whitelist, default 1/1 ──{%- endcomment -%}
+{%- assign aspect = content.image_aspect_ratio | default: '1/1' -%}
+{%- unless aspect == '1/1' or aspect == '3/4' or aspect == '4/3' -%}
+  {%- assign aspect = '1/1' -%}
+{%- endunless -%}
+
+{%- comment -%}── Image object-fit: whitelist, default cover ──{%- endcomment -%}
+{%- assign fit = content.image_object_fit | default: 'cover' -%}
+{%- unless fit == 'cover' or fit == 'contain' -%}
+  {%- assign fit = 'cover' -%}
+{%- endunless -%}
+
+{%- comment -%}── Image mode: 'single' (default) renders the featured image;
+   'carousel' renders all product images (cap 8) as a swipeable strip. ──{%- endcomment -%}
+{%- assign image_mode = content.image_mode | default: 'single' -%}
+{%- unless image_mode == 'single' or image_mode == 'carousel' -%}
+  {%- assign image_mode = 'single' -%}
+{%- endunless -%}
+{%- if content.show_image_dots == nil -%}{%- assign show_image_dots = true -%}{%- else -%}{%- assign show_image_dots = content.show_image_dots -%}{%- endif -%}
+{%- assign image_dots_position = content.image_dots_position | default: 'center' -%}
+{%- unless image_dots_position == 'left' or image_dots_position == 'center' or image_dots_position == 'right' -%}
+  {%- assign image_dots_position = 'center' -%}
+{%- endunless -%}
+
+{%- comment -%}── Title lines: '1'|'2'|'3'|'wrap', default '2' ──{%- endcomment -%}
+{%- assign title_lines = content.title_lines | default: '2' -%}
+{%- unless title_lines == '1' or title_lines == '2' or title_lines == '3' or title_lines == 'wrap' -%}
+  {%- assign title_lines = '2' -%}
+{%- endunless -%}
+
+{%- comment -%}── Visibility booleans ──{%- endcomment -%}
+{%- if content.show_price_label == nil -%}{%- assign show_price_label = false -%}{%- else -%}{%- assign show_price_label = content.show_price_label -%}{%- endif -%}
+{%- if content.show_current_price == nil -%}{%- assign show_current_price = true -%}{%- else -%}{%- assign show_current_price = content.show_current_price -%}{%- endif -%}
+{%- if content.show_mrp == nil -%}{%- assign show_mrp = true -%}{%- else -%}{%- assign show_mrp = content.show_mrp -%}{%- endif -%}
+{%- if content.show_discount == nil -%}{%- assign show_discount = true -%}{%- else -%}{%- assign show_discount = content.show_discount -%}{%- endif -%}
+{%- if content.show_cta == nil -%}{%- assign show_cta = true -%}{%- else -%}{%- assign show_cta = content.show_cta -%}{%- endif -%}
+
+{%- assign price_label_text = content.price_label_text | default: '' -%}
+{%- assign sold_out_label = content.sold_out_label | default: 'Sold Out' -%}
+{%- comment -%}
+  `cta_label` resolution is deferred to AFTER `enable_navigate_to_pdp` is
+  read below — its value depends on which CTA mode is active.
+{%- endcomment -%}
+
+{%- comment -%}
+  Swatches: optional row of color dots under each card title. Source data is
+  Shopify's product option values; we read `.swatch.color` / `.swatch.image`
+  when Shopify exposes them (Online Store 2.0+ with the option set to
+  "Color" in admin), otherwise the swatch renders as a neutral disc.
+  `swatch_max_visible` is responsive; per-viewport caps are emitted into the
+  rendered DOM as `data-hide-m/-t/-d` attributes and resolved by CSS.
+{%- endcomment -%}
+{%- if content.show_swatches == nil -%}
+  {%- assign show_swatches = false -%}
+{%- else -%}
+  {%- assign show_swatches = content.show_swatches -%}
+{%- endif -%}
+{%- assign swatch_option_name = content.swatch_option_name | default: 'Color' -%}
+{%- assign swatch_shape = content.swatch_shape | default: 'circle' -%}
+{%- unless swatch_shape == 'circle' or swatch_shape == 'square' -%}
+  {%- assign swatch_shape = 'circle' -%}
+{%- endunless -%}
+
+{%- comment -%}── Swatch caps: same mobile-first cascade as cards_per_row ──{%- endcomment -%}
+{%- assign smv_raw = content.swatch_max_visible -%}
+{%- assign smv_m = smv_raw.mobile -%}
+{%- assign smv_t = smv_raw.tablet -%}
+{%- assign smv_d = smv_raw.desktop -%}
+{%- if smv_m == nil or smv_m == blank -%}{%- assign smv_m = 3 -%}{%- endif -%}
+{%- if smv_t == nil or smv_t == blank -%}{%- assign smv_t = smv_m -%}{%- endif -%}
+{%- if smv_d == nil or smv_d == blank -%}{%- assign smv_d = smv_t -%}{%- endif -%}
+{%- if smv_m < 1 -%}{%- assign smv_m = 1 -%}{%- endif -%}
+{%- if smv_m > 12 -%}{%- assign smv_m = 12 -%}{%- endif -%}
+{%- if smv_t < 1 -%}{%- assign smv_t = 1 -%}{%- endif -%}
+{%- if smv_t > 12 -%}{%- assign smv_t = 12 -%}{%- endif -%}
+{%- if smv_d < 1 -%}{%- assign smv_d = 1 -%}{%- endif -%}
+{%- if smv_d > 12 -%}{%- assign smv_d = 12 -%}{%- endif -%}
+{%- assign smv_max = smv_m -%}
+{%- if smv_t > smv_max -%}{%- assign smv_max = smv_t -%}{%- endif -%}
+{%- if smv_d > smv_max -%}{%- assign smv_max = smv_d -%}{%- endif -%}
+
+{%- comment -%}
+  Master Mini-PDP gate. When `enable_navigate_to_pdp` is true the CTA loses
+  its JS interception (no `data-spectrum-atc`), the per-card payload script
+  is skipped, and the Mini-PDP modal block at the bottom of the snippet is
+  not rendered. The merchant-facing prop sheet hides every Mini-PDP config
+  under the toggle in this mode.
+{%- endcomment -%}
+{%- if content.enable_navigate_to_pdp == nil -%}
+  {%- assign enable_navigate_to_pdp = false -%}
+{%- else -%}
+  {%- assign enable_navigate_to_pdp = content.enable_navigate_to_pdp -%}
+{%- endif -%}
+
+{%- comment -%}
+  Two CTA labels co-exist in variant.content so the merchant can word the
+  button differently for the two CTA modes. `cta_label` is used when the
+  CTA opens the Mini-PDP / adds to cart; `cta_label_navigate` is used when
+  the CTA is a pure anchor to the product detail page. The schema exposes
+  exactly one of the two fields in the prop sheet based on
+  `enable_navigate_to_pdp`, so a stored value for the inactive mode is
+  preserved across toggles.
+{%- endcomment -%}
+{%- if enable_navigate_to_pdp -%}
+  {%- assign cta_label = content.cta_label_navigate | default: 'View details' -%}
+{%- else -%}
+  {%- assign cta_label = content.cta_label | default: 'Add to cart' -%}
+{%- endif -%}
+
+{%- comment -%}── Mini-PDP props — whitelist + default everything ──{%- endcomment -%}
+{%- assign pdp_gallery_style = content.pdp_gallery_style | default: 'carousel' -%}
+{%- unless pdp_gallery_style == 'carousel' or pdp_gallery_style == 'list' -%}
+  {%- assign pdp_gallery_style = 'carousel' -%}
+{%- endunless -%}
+{%- assign pdp_gallery_aspect_ratio = content.pdp_gallery_aspect_ratio | default: '1/1' -%}
+{%- unless pdp_gallery_aspect_ratio == '1/1' or pdp_gallery_aspect_ratio == '3/4' or pdp_gallery_aspect_ratio == '4/3' or pdp_gallery_aspect_ratio == '16/9' -%}
+  {%- assign pdp_gallery_aspect_ratio = '1/1' -%}
+{%- endunless -%}
+{%- if content.pdp_show_chevrons == nil -%}{%- assign pdp_show_chevrons = true -%}{%- else -%}{%- assign pdp_show_chevrons = content.pdp_show_chevrons -%}{%- endif -%}
+{%- if content.pdp_show_dots == nil -%}{%- assign pdp_show_dots = true -%}{%- else -%}{%- assign pdp_show_dots = content.pdp_show_dots -%}{%- endif -%}
+{%- if content.pdp_auto_play == nil -%}{%- assign pdp_auto_play = false -%}{%- else -%}{%- assign pdp_auto_play = content.pdp_auto_play -%}{%- endif -%}
+{%- assign pdp_modal_max_width = content.pdp_modal_max_width | default: 'md' -%}
+{%- unless pdp_modal_max_width == 'sm' or pdp_modal_max_width == 'md' or pdp_modal_max_width == 'lg' -%}
+  {%- assign pdp_modal_max_width = 'md' -%}
+{%- endunless -%}
+{%- assign pdp_modal_border_radius = content.pdp_modal_border_radius | default: 'rounded' -%}
+{%- unless pdp_modal_border_radius == 'rounded' or pdp_modal_border_radius == 'sharp' -%}
+  {%- assign pdp_modal_border_radius = 'rounded' -%}
+{%- endunless -%}
+{%- if content.pdp_show_selling_price == nil -%}{%- assign pdp_show_selling_price = true -%}{%- else -%}{%- assign pdp_show_selling_price = content.pdp_show_selling_price -%}{%- endif -%}
+{%- if content.pdp_show_mrp == nil -%}{%- assign pdp_show_mrp = true -%}{%- else -%}{%- assign pdp_show_mrp = content.pdp_show_mrp -%}{%- endif -%}
+{%- if content.pdp_show_discount_badge == nil -%}{%- assign pdp_show_discount_badge = true -%}{%- else -%}{%- assign pdp_show_discount_badge = content.pdp_show_discount_badge -%}{%- endif -%}
+{%- assign pdp_discount_format = content.pdp_discount_format | default: 'percent' -%}
+{%- unless pdp_discount_format == 'percent' or pdp_discount_format == 'amount' -%}
+  {%- assign pdp_discount_format = 'percent' -%}
+{%- endunless -%}
+{%- if content.pdp_show_view_product_cta == nil -%}{%- assign pdp_show_view_product_cta = false -%}{%- else -%}{%- assign pdp_show_view_product_cta = content.pdp_show_view_product_cta -%}{%- endif -%}
+{%- if content.pdp_show_share_button == nil -%}{%- assign pdp_show_share_button = false -%}{%- else -%}{%- assign pdp_show_share_button = content.pdp_show_share_button -%}{%- endif -%}
+{%- if content.pdp_show_variant_selector == nil -%}{%- assign pdp_show_variant_selector = true -%}{%- else -%}{%- assign pdp_show_variant_selector = content.pdp_show_variant_selector -%}{%- endif -%}
+{%- assign pdp_variant_selector_style = content.pdp_variant_selector_style | default: 'pill' -%}
+{%- unless pdp_variant_selector_style == 'pill' or pdp_variant_selector_style == 'dropdown' or pdp_variant_selector_style == 'swatch' -%}
+  {%- assign pdp_variant_selector_style = 'pill' -%}
+{%- endunless -%}
+{%- if content.pdp_show_price_in_variant == nil -%}{%- assign pdp_show_price_in_variant = false -%}{%- else -%}{%- assign pdp_show_price_in_variant = content.pdp_show_price_in_variant -%}{%- endif -%}
+{%- if content.pdp_show_low_inventory_callout == nil -%}{%- assign pdp_show_low_inventory_callout = false -%}{%- else -%}{%- assign pdp_show_low_inventory_callout = content.pdp_show_low_inventory_callout -%}{%- endif -%}
+{%- assign pdp_low_inventory_threshold = content.pdp_low_inventory_threshold | default: 10 -%}
+{%- if pdp_low_inventory_threshold < 1 -%}{%- assign pdp_low_inventory_threshold = 1 -%}{%- endif -%}
+{%- assign pdp_low_inventory_text = content.pdp_low_inventory_text | default: 'Only {n} available' -%}
+{%- if content.pdp_show_quantity_selector == nil -%}{%- assign pdp_show_quantity_selector = false -%}{%- else -%}{%- assign pdp_show_quantity_selector = content.pdp_show_quantity_selector -%}{%- endif -%}
+{%- if content.pdp_show_description == nil -%}{%- assign pdp_show_description = false -%}{%- else -%}{%- assign pdp_show_description = content.pdp_show_description -%}{%- endif -%}
+{%- assign pdp_description_style = content.pdp_description_style | default: 'compact' -%}
+{%- unless pdp_description_style == 'compact' or pdp_description_style == 'expandable' -%}
+  {%- assign pdp_description_style = 'compact' -%}
+{%- endunless -%}
+{%- assign pdp_description_font_size = content.pdp_description_font_size | default: 'sm' -%}
+{%- unless pdp_description_font_size == 'sm' or pdp_description_font_size == 'md' -%}
+  {%- assign pdp_description_font_size = 'sm' -%}
+{%- endunless -%}
+{%- if content.pdp_show_add_to_cart == nil -%}{%- assign pdp_show_add_to_cart = true -%}{%- else -%}{%- assign pdp_show_add_to_cart = content.pdp_show_add_to_cart -%}{%- endif -%}
+{%- assign pdp_atc_label = content.pdp_atc_label | default: 'Add To Cart' -%}
+{%- if content.pdp_show_buy_now == nil -%}{%- assign pdp_show_buy_now = true -%}{%- else -%}{%- assign pdp_show_buy_now = content.pdp_show_buy_now -%}{%- endif -%}
+{%- assign pdp_buy_now_label = content.pdp_buy_now_label | default: 'Buy Now' -%}
+{%- assign pdp_cta_layout = content.pdp_cta_layout | default: 'side_by_side' -%}
+{%- unless pdp_cta_layout == 'side_by_side' or pdp_cta_layout == 'stacked' -%}
+  {%- assign pdp_cta_layout = 'side_by_side' -%}
+{%- endunless -%}
+
+{%- comment -%}
+  Anchor product — read from the PDP `product` global. Off-PDP, the global
+  is nil and we skip the entire render. The recommendations endpoint is
+  scoped per product; without an anchor there is nothing to ask for.
+{%- endcomment -%}
+{%- assign anchor_id = '' -%}
+{%- assign anchor_handle = '' -%}
+{%- if product and product.id -%}
+  {%- assign anchor_id = product.id -%}
+  {%- assign anchor_handle = product.handle -%}
+{%- endif -%}
+
+{%- comment -%}
+  SSR empty-state guard. The recommendations metafield is available at
+  Liquid render time, so we can decide whether this snippet has anything
+  to show BEFORE emitting markup. Walking the SlotEnvelope here mirrors
+  what the runtime asset does inside `data-spectrum-sim-recommendations`:
+  find the default slot, then the default entry within it, and check
+  whether its `content.recommendations` list is non-empty.
+
+  Why this matters even though the IIFE also calls `hideWrapper` on the
+  empty path: between SSR paint and IIFE execution there is a visible
+  window (skeleton cards + heading) that the runtime SDK exposes by
+  flipping the wrapper's `data-spectrum-vis` to `"on"`. On themes that
+  block / strip the IIFE script entirely the empty body never collapses.
+  Gating the wrapper body on a server-known signal removes both failure
+  modes; the IIFE's `hideWrapper` stays as the defense for the tail
+  case where handles exist but every product fetch fails.
+{%- endcomment -%}
+{%- assign has_recommendations = false -%}
+{%- assign sim_envelope_pre = product.metafields.spectrum.recommendations_similar_products_live.value -%}
+{%- if sim_envelope_pre -%}
+  {%- for slot_item in sim_envelope_pre -%}
+    {%- if has_recommendations -%}{%- break -%}{%- endif -%}
+    {%- if slot_item.slotKey == 'default' and slot_item.payload and slot_item.payload.entries -%}
+      {%- for entry in slot_item.payload.entries -%}
+        {%- if entry.isDefault and entry.content and entry.content.recommendations -%}
+          {%- if entry.content.recommendations.size > 0 -%}
+            {%- assign has_recommendations = true -%}
+          {%- endif -%}
+          {%- break -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+
+{%- if anchor_id != '' and has_recommendations -%}
+  <div class="sai-frpxf1zz sai-frpxf1zz--align-{{ align }}" data-spectrum-sim-root>
+    {%- if heading != blank -%}
+      <h2 class="sai-frpxf1zz__heading">{{ heading | escape }}</h2>
+    {%- endif -%}
+    {%- if description != blank -%}
+      <p class="sai-frpxf1zz__description">{{ description | escape }}</p>
+    {%- endif -%}
+
+    <div class="sai-frpxf1zz__layout sai-frpxf1zz__layout--{{ layout }}"
+         data-layout="{{ layout }}"
+         data-indicator="{{ indicator }}">
+      <div class="sai-frpxf1zz__frame">
+      <div class="sai-frpxf1zz__grid sai-frpxf1zz__grid--{{ layout }}" style="--sai-frpxf1zz-cpr-m: {{ cpr_m }}; --sai-frpxf1zz-cpr-t: {{ cpr_t }}; --sai-frpxf1zz-cpr-d: {{ cpr_d }}" data-spectrum-sim-grid>
+      {%- comment -%}
+        Skeleton placeholders, one per requested product slot. JS replaces
+        each in place with a populated card clone of the template below,
+        and removes any leftover skeletons when Shopify returns fewer
+        products than requested.
+      {%- endcomment -%}
+      {%- for i in (1..product_count) -%}
+        <div class="sai-frpxf1zz__card sai-frpxf1zz__card--skeleton" aria-hidden="true" data-spectrum-sim-skeleton>
+          <div class="sai-frpxf1zz__image-zone" style="aspect-ratio: {{ aspect }};"></div>
+          <div class="sai-frpxf1zz__body">
+            <div class="sai-frpxf1zz__title sai-frpxf1zz__title--skeleton" data-title-lines="{{ title_lines }}"></div>
+            {%- if show_price_label or show_current_price or show_mrp or show_discount -%}
+              <div class="sai-frpxf1zz__price-block sai-frpxf1zz__price-block--skeleton"></div>
+            {%- endif -%}
+          </div>
+        </div>
+      {%- endfor -%}
+      </div>
+
+      {%- if layout == 'carousel' and carousel_arrows -%}
+        <button type="button"
+                class="sai-frpxf1zz__arrow sai-frpxf1zz__arrow--prev"
+                aria-label="Previous"
+                data-spectrum-carousel-arrow="prev">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M10 3.5L5.5 8L10 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button type="button"
+                class="sai-frpxf1zz__arrow sai-frpxf1zz__arrow--next"
+                aria-label="Next"
+                data-spectrum-carousel-arrow="next">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5L10.5 8L6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      {%- endif -%}
+      </div>
+
+      {%- if layout == 'carousel' and indicator != 'none' -%}
+        {%- comment -%}
+          Indicator slots are pre-rendered for `product_count` to keep the
+          visual stable on first paint. After the recommendations fetch
+          resolves, JS reconciles dot count + stepper denominator with
+          the actual number of returned products.
+        {%- endcomment -%}
+        <div class="sai-frpxf1zz__controls" data-card-count="{{ product_count }}" data-spectrum-carousel-controls>
+          {%- if indicator == 'dots' -%}
+            <div class="sai-frpxf1zz__dots" role="tablist" aria-label="Carousel position" data-spectrum-carousel-dots>
+              {%- for n in (1..product_count) -%}
+                <button type="button"
+                        class="sai-frpxf1zz__dot{% if forloop.first %} is-active{% endif %}"
+                        aria-label="Go to slide {{ forloop.index }}"
+                        data-spectrum-carousel-dot="{{ forloop.index0 }}"
+                        {%- if forloop.first %} aria-selected="true"{% endif -%}></button>
+              {%- endfor -%}
+            </div>
+          {%- elsif indicator == 'scroll_bar' -%}
+            <div class="sai-frpxf1zz__scrollbar" aria-hidden="true">
+              <div class="sai-frpxf1zz__scrollbar-thumb" data-spectrum-carousel-thumb></div>
+            </div>
+          {%- elsif indicator == 'stepper' -%}
+            <div class="sai-frpxf1zz__stepper" aria-live="polite" data-spectrum-carousel-stepper>1 / {{ product_count }}</div>
+          {%- endif -%}
+        </div>
+      {%- endif -%}
+    </div>
+
+    {%- comment -%}
+      Card template — cloned by JS once per returned product. Prop-driven
+      structural branches (image_mode, show_swatches, show_*price*, show_cta)
+      are baked at SSR; per-product fields are empty placeholders identified
+      by `data-sai-*` hooks and filled by JS. Elements that may stay empty
+      for a given product (image-dots when one image, swatches when no
+      color option, mrp/discount when not on sale) ship `hidden` by default
+      and JS unhides only when a value is set.
+    {%- endcomment -%}
+    <template data-spectrum-sim-card-template>
+      <div class="sai-frpxf1zz__card">
+        <a class="sai-frpxf1zz__card-link" href="#" data-sai-card-link>
+          {%- if image_mode == 'carousel' -%}
+            <div class="sai-frpxf1zz__image-zone sai-frpxf1zz__image-zone--carousel" style="aspect-ratio: {{ aspect }};">
+              <div class="sai-frpxf1zz__image-track" data-spectrum-image-track></div>
+              {%- if show_image_dots -%}
+                <div class="sai-frpxf1zz__image-dots"
+                     role="tablist"
+                     aria-label="Choose product image"
+                     data-position="{{ image_dots_position }}"
+                     data-spectrum-image-dots
+                     hidden></div>
+              {%- endif -%}
+            </div>
+          {%- else -%}
+            <div class="sai-frpxf1zz__image-zone" style="aspect-ratio: {{ aspect }};">
+              <img class="sai-frpxf1zz__image"
+                   src=""
+                   alt=""
+                   style="object-fit: {{ fit }};"
+                   loading="lazy"
+                   data-sai-image
+                   hidden>
+            </div>
+          {%- endif -%}
+          <div class="sai-frpxf1zz__body">
+            <h3 class="sai-frpxf1zz__title" data-title-lines="{{ title_lines }}" data-sai-title></h3>
+            {%- if show_swatches -%}
+              <div class="sai-frpxf1zz__swatches sai-frpxf1zz__swatches--{{ swatch_shape }}"
+                   role="list"
+                   aria-label="Available colors"
+                   data-sai-swatches
+                   hidden></div>
+            {%- endif -%}
+            {%- if show_price_label or show_current_price or show_mrp or show_discount -%}
+              <div class="sai-frpxf1zz__price-block">
+                {%- if show_price_label and price_label_text != blank -%}
+                  <div class="sai-frpxf1zz__price-label">{{ price_label_text | escape }}</div>
+                {%- endif -%}
+                <div class="sai-frpxf1zz__price-row">
+                  {%- if show_current_price -%}
+                    <span class="sai-frpxf1zz__price-current" data-sai-price-current></span>
+                  {%- endif -%}
+                  {%- if show_mrp -%}
+                    <span class="sai-frpxf1zz__price-mrp" data-sai-price-mrp hidden></span>
+                  {%- endif -%}
+                  {%- if show_discount -%}
+                    <span class="sai-frpxf1zz__price-discount" data-sai-price-discount hidden></span>
+                  {%- endif -%}
+                </div>
+              </div>
+            {%- endif -%}
+          </div>
+        </a>
+        {%- if show_cta -%}
+          {%- comment -%}
+            When navigate-to-PDP is on, the CTA is a pure `<a href>` with no
+            data attributes. Merchant themes often delegate clicks on
+            `[data-product-id]` (added at runtime by this snippet's JS when
+            recommendations resolve) to a global ATC handler — emitting any
+            of those attrs would cause the theme to intercept the click and
+            hijack the navigation back into a cart-add. In navigate mode
+            the JS also short-circuits on the missing `data-sai-cta` and
+            never patches in `data-product-id`.
+          {%- endcomment -%}
+          <a class="sai-frpxf1zz__cta"
+             href="#"
+             {%- unless enable_navigate_to_pdp -%}
+             data-spectrum-atc
+             data-sai-cta
+             data-sold-out-label="{{ sold_out_label | escape }}"
+             {%- endunless -%}>{{ cta_label | escape }}</a>
+        {%- endif -%}
+      </div>
+    </template>
+
+    {%- comment -%}
+      Mini-PDP — full quick-view modal. Hidden until JS opens it. Lives
+      outside the layout block so its `position: fixed` styling doesn't
+      fight the layout/grid. Per-product data is fetched lazily from
+      `/products/{handle}.js` on first open and cached client-side; the
+      modal renders skeleton content until that fetch resolves.
+    {%- endcomment -%}
+    {%- if show_cta and enable_navigate_to_pdp == false -%}
+      <div class="sai-frpxf1zz__pdp sai-frpxf1zz__pdp--gallery-{{ pdp_gallery_style }} sai-frpxf1zz__pdp--width-{{ pdp_modal_max_width }} sai-frpxf1zz__pdp--radius-{{ pdp_modal_border_radius }}"
+           data-spectrum-pdp-modal
+           hidden>
+        <div class="sai-frpxf1zz__pdp-backdrop" data-spectrum-pdp-backdrop></div>
+        <div class="sai-frpxf1zz__pdp-panel"
+             role="dialog"
+             aria-modal="true"
+             aria-labelledby="sai-frpxf1zz-pdp-title"
+             data-spectrum-pdp-panel>
+
+          <button type="button"
+                  class="sai-frpxf1zz__pdp-close"
+                  data-spectrum-pdp-close
+                  aria-label="Close">
+            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 3l10 10M13 3L3 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </button>
+
+          <div class="sai-frpxf1zz__pdp-layout">
+            <div class="sai-frpxf1zz__pdp-gallery"
+                 style="aspect-ratio: {{ pdp_gallery_aspect_ratio }};"
+                 data-spectrum-pdp-gallery>
+              <div class="sai-frpxf1zz__pdp-track" data-spectrum-pdp-track></div>
+
+              {%- if pdp_show_chevrons -%}
+                <button type="button"
+                        class="sai-frpxf1zz__pdp-chevron sai-frpxf1zz__pdp-chevron--prev"
+                        data-spectrum-pdp-chevron="prev"
+                        aria-label="Previous image"
+                        hidden>
+                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M10 3.5L5.5 8L10 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button type="button"
+                        class="sai-frpxf1zz__pdp-chevron sai-frpxf1zz__pdp-chevron--next"
+                        data-spectrum-pdp-chevron="next"
+                        aria-label="Next image"
+                        hidden>
+                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M6 3.5L10.5 8L6 12.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              {%- endif -%}
+
+              {%- if pdp_show_dots -%}
+                <div class="sai-frpxf1zz__pdp-dots" role="tablist" aria-label="Gallery position" data-spectrum-pdp-dots hidden></div>
+              {%- endif -%}
+
+              <div class="sai-frpxf1zz__pdp-overlay-actions">
+                {%- if pdp_show_share_button -%}
+                  <button type="button"
+                          class="sai-frpxf1zz__pdp-share"
+                          data-spectrum-pdp-share
+                          aria-label="Share product">
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <circle cx="3" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                      <circle cx="12" cy="3.5" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                      <circle cx="12" cy="12.5" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                      <path d="M5 7L10 4M5 9L10 12" fill="none" stroke="currentColor" stroke-width="1.3"/>
+                    </svg>
+                  </button>
+                {%- endif -%}
+                {%- if pdp_show_view_product_cta -%}
+                  <a class="sai-frpxf1zz__pdp-view-product"
+                     href="#"
+                     data-spectrum-pdp-view-product
+                     aria-label="View full product page">
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <path d="M9 2h5v5M14 2L8 8M12 9v4a1 1 0 01-1 1H3a1 1 0 01-1-1V5a1 1 0 011-1h4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </a>
+                {%- endif -%}
+              </div>
+            </div>
+
+            <div class="sai-frpxf1zz__pdp-content">
+
+              <h3 class="sai-frpxf1zz__pdp-title"
+                  id="sai-frpxf1zz-pdp-title"
+                  data-spectrum-pdp-title></h3>
+
+              {%- if pdp_show_selling_price or pdp_show_mrp or pdp_show_discount_badge -%}
+                <div class="sai-frpxf1zz__pdp-price-row" data-spectrum-pdp-price-row>
+                  {%- if pdp_show_selling_price -%}
+                    <span class="sai-frpxf1zz__pdp-price-current" data-spectrum-pdp-price-current></span>
+                  {%- endif -%}
+                  {%- if pdp_show_mrp -%}
+                    <span class="sai-frpxf1zz__pdp-price-mrp" data-spectrum-pdp-price-mrp hidden></span>
+                  {%- endif -%}
+                  {%- if pdp_show_discount_badge -%}
+                    <span class="sai-frpxf1zz__pdp-discount" data-spectrum-pdp-discount hidden></span>
+                  {%- endif -%}
+                </div>
+              {%- endif -%}
+
+              {%- if pdp_show_variant_selector -%}
+                <div class="sai-frpxf1zz__pdp-variants sai-frpxf1zz__pdp-variants--{{ pdp_variant_selector_style }}"
+                     data-spectrum-pdp-variants
+                     role="radiogroup"
+                     aria-label="Choose a variant"></div>
+              {%- endif -%}
+
+              {%- if pdp_show_low_inventory_callout -%}
+                <div class="sai-frpxf1zz__pdp-low-stock"
+                     data-spectrum-pdp-low-stock
+                     role="status"
+                     hidden>
+                  <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <path d="M8 1.5l1 4 4 .5-3 3 1 4-3-2-3 2 1-4-3-3 4-.5z" fill="currentColor"/>
+                  </svg>
+                  <span data-spectrum-pdp-low-stock-text></span>
+                </div>
+              {%- endif -%}
+
+              {%- if pdp_show_quantity_selector -%}
+                <div class="sai-frpxf1zz__pdp-qty" data-spectrum-pdp-qty-row>
+                  <label class="sai-frpxf1zz__pdp-qty-label" for="sai-frpxf1zz-pdp-qty">Quantity</label>
+                  <div class="sai-frpxf1zz__pdp-qty-stepper">
+                    <button type="button" class="sai-frpxf1zz__pdp-qty-button" data-spectrum-pdp-qty-decrement aria-label="Decrease quantity">−</button>
+                    <input id="sai-frpxf1zz-pdp-qty"
+                           class="sai-frpxf1zz__pdp-qty-input"
+                           type="number"
+                           min="1"
+                           step="1"
+                           value="1"
+                           data-spectrum-pdp-qty-input
+                           inputmode="numeric">
+                    <button type="button" class="sai-frpxf1zz__pdp-qty-button" data-spectrum-pdp-qty-increment aria-label="Increase quantity">+</button>
+                  </div>
+                </div>
+              {%- endif -%}
+
+              {%- if pdp_show_description -%}
+                <div class="sai-frpxf1zz__pdp-description sai-frpxf1zz__pdp-description--{{ pdp_description_style }} sai-frpxf1zz__pdp-description--font-{{ pdp_description_font_size }}"
+                     data-spectrum-pdp-description>
+                  <div class="sai-frpxf1zz__pdp-description-body" data-spectrum-pdp-description-body></div>
+                  {%- if pdp_description_style == 'expandable' -%}
+                    <button type="button"
+                            class="sai-frpxf1zz__pdp-description-toggle"
+                            data-spectrum-pdp-description-toggle
+                            aria-expanded="false"
+                            hidden>Read more</button>
+                  {%- endif -%}
+                </div>
+              {%- endif -%}
+
+              {%- if pdp_show_add_to_cart or pdp_show_buy_now -%}
+                <div class="sai-frpxf1zz__pdp-ctas sai-frpxf1zz__pdp-ctas--{{ pdp_cta_layout }}">
+                  {%- if pdp_show_buy_now -%}
+                    <button type="button"
+                            class="sai-frpxf1zz__pdp-buy-now"
+                            data-spectrum-pdp-buy-now>{{ pdp_buy_now_label | escape }}</button>
+                  {%- endif -%}
+                  {%- if pdp_show_add_to_cart -%}
+                    <button type="button"
+                            class="sai-frpxf1zz__pdp-atc"
+                            data-spectrum-pdp-atc>{{ pdp_atc_label | escape }}</button>
+                  {%- endif -%}
+                </div>
+              {%- endif -%}
+
+            </div>
+          </div>
+        </div>
+
+        <script type="application/json" data-spectrum-pdp-config>
+          {
+            "galleryStyle": {{ pdp_gallery_style | json }},
+            "showChevrons": {{ pdp_show_chevrons | json }},
+            "showDots": {{ pdp_show_dots | json }},
+            "autoPlay": {{ pdp_auto_play | json }},
+            "showSellingPrice": {{ pdp_show_selling_price | json }},
+            "showMrp": {{ pdp_show_mrp | json }},
+            "showDiscountBadge": {{ pdp_show_discount_badge | json }},
+            "discountFormat": {{ pdp_discount_format | json }},
+            "showVariantSelector": {{ pdp_show_variant_selector | json }},
+            "variantSelectorStyle": {{ pdp_variant_selector_style | json }},
+            "showPriceInVariant": {{ pdp_show_price_in_variant | json }},
+            "showLowInventoryCallout": {{ pdp_show_low_inventory_callout | json }},
+            "lowInventoryThreshold": {{ pdp_low_inventory_threshold | json }},
+            "lowInventoryText": {{ pdp_low_inventory_text | json }},
+            "showQuantitySelector": {{ pdp_show_quantity_selector | json }},
+            "showDescription": {{ pdp_show_description | json }},
+            "descriptionStyle": {{ pdp_description_style | json }},
+            "soldOutLabel": {{ sold_out_label | json }}
+          }
+        </script>
+      </div>
+    {%- endif -%}
+  </div>
+  {%- comment -%}
+    Recommendation handles, resolved server-side from the
+    `spectrum.recommendations_similar_products_live` product metafield.
+    Shape on disk is the standard SlotEnvelope (array of slot items, each
+    with `payload.entries[]`); the runtime renders the default entry only,
+    so we walk to the first `entry.isDefault` and emit its
+    `content.recommendations` as a flat handle array. Empty / missing
+    metafield yields an empty `[]`, which the runtime treats as the
+    silent-hide signal.
+  {%- endcomment -%}
+  {%- assign similar_envelope = product.metafields.spectrum.recommendations_similar_products_live.value -%}
+  <script type="application/json" data-spectrum-sim-recommendations>
+[
+{%- if similar_envelope -%}
+  {%- assign emitted = false -%}
+  {%- for slot_item in similar_envelope -%}
+    {%- if emitted -%}{%- break -%}{%- endif -%}
+    {%- if slot_item.slotKey == 'default' and slot_item.payload and slot_item.payload.entries -%}
+      {%- for entry in slot_item.payload.entries -%}
+        {%- if entry.isDefault and entry.content and entry.content.recommendations -%}
+          {%- for handle in entry.content.recommendations -%}
+            {%- unless forloop.first -%},{%- endunless -%}
+            {{ handle | json }}
+          {%- endfor -%}
+          {%- assign emitted = true -%}
+          {%- break -%}
+        {%- endif -%}
+      {%- endfor -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+]
+  </script>
+  {%- comment -%}
+    Anchor + prop bag for the runtime asset. Drives the card-template
+    population pass (image rendering, swatches, price formatting, Mini-PDP
+    config). The product list itself comes from the
+    `data-spectrum-sim-recommendations` block above. Every interpolated
+    value pipes through `| json` so storefront text and merchant config
+    can't escape the surrounding `<script>` element.
+  {%- endcomment -%}
+  <script type="application/json" data-spectrum-sim-config>
+    {
+      "anchorProductId": {{ anchor_id | json }},
+      "anchorProductHandle": {{ anchor_handle | json }},
+      "productCount": {{ product_count | json }},
+      "intent": "related",
+      "layout": {{ layout | json }},
+      "indicator": {{ indicator | json }},
+      "imageMode": {{ image_mode | json }},
+      "imageObjectFit": {{ fit | json }},
+      "imageAspect": {{ aspect | json }},
+      "showImageDots": {{ show_image_dots | json }},
+      "imageDotsPosition": {{ image_dots_position | json }},
+      "titleLines": {{ title_lines | json }},
+      "showCurrentPrice": {{ show_current_price | json }},
+      "showMrp": {{ show_mrp | json }},
+      "showDiscount": {{ show_discount | json }},
+      "showCta": {{ show_cta | json }},
+      "ctaLabel": {{ cta_label | json }},
+      "soldOutLabel": {{ sold_out_label | json }},
+      "enableNavigateToPdp": {{ enable_navigate_to_pdp | json }},
+      "showSwatches": {{ show_swatches | json }},
+      "swatchOptionName": {{ swatch_option_name | json }},
+      "swatchMaxVisible": {
+        "mobile": {{ smv_m | json }},
+        "tablet": {{ smv_t | json }},
+        "desktop": {{ smv_d | json }}
+      },
+      "swatchShape": {{ swatch_shape | json }}
+    }
+  </script>
+  {%- comment -%}
+    Asset only loads when the wrapper rendered (anchor present). The IIFE
+    has no work without a container; off-PDP pages skip the entire block
+    above and never request this script.
+  {%- endcomment -%}
+  <script src="{{ 'sai-snippet-frpxf1zz.js' | asset_url }}" async></script>
+{%- endif -%}
