@@ -203,6 +203,13 @@
               },
               "block_order": []
             },
+            "sai_virtual_try_on": {
+              "type": "custom-liquid",
+              "settings": {
+                "custom_liquid": "{% render '_sai-foenfu1ocs552m89j8sxp82r', sai_state: 'draft' %}"
+              },
+              "blocks": {}
+            },
             "product_description_accordion": {
               "type": "accordion",
               "name": "Accordion",
@@ -294,6 +301,7 @@
             "group_icgrde",
             "variant_picker_R3rGDr",
             "buy_buttons_eYQEYi",
+            "sai_virtual_try_on",
             "product_description_accordion",
             "product_highlights_accordion"
           ]
@@ -455,10 +463,6 @@
         "padding-block-end": 48
       }
     },
-    "sai_section_kqkrqtcj": {
-      "type": "sai-section-kqkrqtcj",
-      "settings": {}
-    },
     "sai_section_vuu0xl1v": {
       "type": "sai-section-vuu0xl1v",
       "settings": {}
@@ -472,7 +476,6 @@
     "main",
     "sai_section_vuu0xl1v",
     "sai_section_a5nm3mm3",
-    "sai_section_kqkrqtcj",
     "product_recommendations_qggXJq"
   ]
 }
