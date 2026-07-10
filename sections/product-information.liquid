@@ -3,11 +3,12 @@
 </script>
 
 {% capture media_gallery %}
-  {%- content_for 'block',
-    type: '_product-media-gallery',
-    id: 'media-gallery',
-    closest.product: closest.product
-  -%}
+  {%- comment -%}
+    Theme-native gallery replaced by the Spectrum product_gallery snippet.
+    Renders in the media column of the two-column PDP layout; draft state so
+    the authored gallery shows on the storefront.
+  {%- endcomment -%}
+  {% render '_sai-q8jzq88re5lfs1ghpmui32bt', sai_state: 'draft' %}
 {% endcapture %}
 
 {% capture product_details %}
