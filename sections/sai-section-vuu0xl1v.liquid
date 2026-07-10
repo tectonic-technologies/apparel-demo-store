@@ -18,10 +18,9 @@
   direction: before
   element: section:sai-section-vuu0xl1v
 {%- endcomment -%}
+{%- comment -%} Inlined: render live for all visitors, not only Studio preview. {%- endcomment -%}
 {%- unless request.design_mode -%}
-{%- if _sai_preview and _sai_url contains '_spectrum_ai_preview=_system-178463768769' or _sai_url contains '|_system-178463768769|' -%}
   {% render '_sai-cyaine5q9ypwh6uuwr17rojf', sai_state: 'draft' %}
-{%- endif -%}
 {%- endunless -%}
 {%- comment -%}
   SPECTRUM_AI_SLOT:END handle=mut-cyaine5q9ypwh6uuwr17rojf
