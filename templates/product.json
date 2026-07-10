@@ -406,9 +406,14 @@
         "padding-block-start": 48,
         "padding-block-end": 48
       }
+    },
+    "sai_section_v2dbks8d": {
+      "type": "sai-section-v2dbks8d",
+      "settings": {}
     }
   },
   "order": [
+    "sai_section_v2dbks8d",
     "main",
     "product_recommendations_qggXJq"
   ]
