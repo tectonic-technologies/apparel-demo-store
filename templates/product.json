@@ -339,9 +339,14 @@
     "sai_section_m8lz5n26": {
       "type": "sai-section-m8lz5n26",
       "settings": {}
+    },
+    "sai_section_cpx5gcm2": {
+      "type": "sai-section-cpx5gcm2",
+      "settings": {}
     }
   },
   "order": [
+    "sai_section_cpx5gcm2",
     "main",
     "sai_section_vuu0xl1v",
     "sai_section_a5nm3mm3",
