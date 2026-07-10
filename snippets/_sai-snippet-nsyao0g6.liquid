@@ -1,0 +1,105 @@
+{%- comment -%}
+  Top Highlights — product feature pills rendered server-side from slot data.
+
+  Wrapper contract (resource-slot, simple slot):
+    - variant            : default variant from mo.variants.value.variants
+    - slot               : matched top_highlights simple slot { slotKey, payload }
+    - slot_payload       : slot.payload (already parsed JSON; NO .value accessor)
+    - entry              : resolved default entry from slot_payload.entries
+    - mo                 : spectrum_snippet_instance metaobject drop
+    - mutation_handle    : 'mut-{instanceId}'
+    - experience_handle  : experience handle
+
+  variant.content fields (presentation only):
+    - show_title      boolean (optional)  show section title (default: false)
+    - title           string  (optional)  section heading text
+    - max_items       number  (optional)  max highlights to show (default: 6)
+    - pill_style      string  (optional)  filled | outlined | text
+    - layout          string  (optional)  wrap | list
+    - show_detail     boolean (optional)  click pill → detail popup (default: false)
+
+  entry.content fields (slot-derived):
+    - items   Array<{ title: string, detail: string }>
+
+  Trust boundary: backend-supplied content is trusted by contract. The
+  snippet is a passive renderer.
+{%- endcomment -%}
+
+{%- assign content = variant.content -%}
+{%- if content.show_title == nil -%}{%- assign show_title = false -%}{%- else -%}{%- assign show_title = content.show_title -%}{%- endif -%}
+{%- assign title = content.title | default: 'Key Features' -%}
+{%- assign max_items = content.max_items | default: 6 -%}
+{%- assign pill_style = content.pill_style | default: 'filled' -%}
+{%- assign layout = content.layout | default: 'wrap' -%}
+{%- assign pill_icon_url = content.pill_icon_url -%}
+{%- assign pill_icon_position = content.pill_icon_position | default: 'left' -%}
+{%- if content.show_detail == nil -%}{%- assign show_detail = false -%}{%- else -%}{%- assign show_detail = content.show_detail -%}{%- endif -%}
+{%- assign gradient_from = content.pill_gradient_from -%}
+{%- assign gradient_to = content.pill_gradient_to -%}
+{%- assign gradient_direction = content.pill_gradient_direction | default: 'to right' -%}
+{%- assign items = entry.content.items -%}
+{%- capture pill_icon_html -%}{%- if pill_icon_url != blank -%}<img class="sai-nsyao0g6__pill-icon" src="{{ pill_icon_url }}" alt="" aria-hidden="true" loading="lazy">{%- endif -%}{%- endcapture -%}
+{%- capture pill_style_attr -%}{%- if gradient_from != blank and gradient_to != blank -%} style="background: linear-gradient({{ gradient_direction }}, {{ gradient_from }}, {{ gradient_to }});"{%- endif -%}{%- endcapture -%}
+
+<sai-nsyao0g6
+  class="sai-nsyao0g6"
+  data-show-detail="{{ show_detail }}"
+>
+  {%- if show_title -%}
+    <h3 class="sai-nsyao0g6__title">{{ title | escape }}</h3>
+  {%- endif -%}
+  {%- if items.size > 0 -%}
+    <div class="sai-nsyao0g6__list sai-nsyao0g6__list--{{ layout }}" data-pill-style="{{ pill_style }}" data-icon-position="{{ pill_icon_position }}">
+      {%- for item in items limit: max_items -%}
+        {%- if show_detail and item.detail != blank -%}
+          <button class="sai-nsyao0g6__pill sai-nsyao0g6__pill--has-detail" type="button" data-detail="{{ item.detail | escape }}"{{ pill_style_attr }}>{{ pill_icon_html }}<span class="sai-nsyao0g6__pill-text">{{ item.title | escape }}</span></button>
+        {%- else -%}
+          <span class="sai-nsyao0g6__pill"{{ pill_style_attr }}>{{ pill_icon_html }}<span class="sai-nsyao0g6__pill-text">{{ item.title | escape }}</span></span>
+        {%- endif -%}
+      {%- endfor -%}
+    </div>
+  {%- endif -%}
+</sai-nsyao0g6>
+
+<script src="{{ 'sai-snippet-nsyao0g6.js' | asset_url }}" async></script>
+
+{% stylesheet %}
+.sai-nsyao0g6 { display: block; }
+.sai-nsyao0g6__title { font-family: var(--sai-font-heading, inherit); font-size: 16px; font-weight: 600; color: var(--sai-color-fg, #000); margin: 0 0 12px; }
+
+/* ── List layouts ── */
+.sai-nsyao0g6__list--wrap { display: flex; flex-wrap: wrap; gap: 10px; }
+.sai-nsyao0g6__list--list { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── Pill base ── */
+.sai-nsyao0g6__pill { display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; font-family: var(--sai-font-body, inherit); font-size: 14px; line-height: 1.4; color: var(--sai-color-fg, #000); border-radius: 999px; transition: opacity 0.15s ease; cursor: default; }
+
+/* ── Pill icon ── */
+.sai-nsyao0g6__pill-icon { inline-size: 18px; block-size: 18px; object-fit: contain; flex-shrink: 0; order: 0; }
+.sai-nsyao0g6__pill-text { order: 1; }
+.sai-nsyao0g6__list[data-icon-position="right"] .sai-nsyao0g6__pill-icon { order: 2; }
+
+/* ── Pill styles ── */
+.sai-nsyao0g6__list[data-pill-style="filled"] .sai-nsyao0g6__pill { background: color-mix(in srgb, var(--sai-color-fg, #000) 6%, transparent); border: none; }
+.sai-nsyao0g6__list[data-pill-style="outlined"] .sai-nsyao0g6__pill { background: none; border: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 15%, transparent); }
+.sai-nsyao0g6__list[data-pill-style="text"] .sai-nsyao0g6__pill { background: none; border: none; padding: 6px 0; text-decoration: underline; text-underline-offset: 3px; }
+
+/* ── List layout overrides ── */
+.sai-nsyao0g6__list--list .sai-nsyao0g6__pill { border-radius: 8px; }
+
+/* ── Detail popup ── */
+.sai-nsyao0g6__pill--has-detail { cursor: pointer; position: relative; font: inherit; text-align: start; }
+.sai-nsyao0g6__popup { position: absolute; inset-inline-start: 0; inset-block-start: calc(100% + 8px); z-index: 10; inline-size: max-content; max-inline-size: 280px; padding: 10px 14px; background: var(--sai-color-bg, #fff); color: var(--sai-color-fg, #000); font-size: 13px; line-height: 1.5; border-radius: 8px; box-shadow: 0 4px 16px color-mix(in srgb, var(--sai-color-fg, #000) 12%, transparent), 0 0 0 1px color-mix(in srgb, var(--sai-color-fg, #000) 6%, transparent); animation: sai-nsyao0g6-popup-in 0.15s ease-out; }
+@keyframes sai-nsyao0g6-popup-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  .sai-nsyao0g6__pill { font-size: 13px; padding: 8px 16px; }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .sai-nsyao0g6__pill { transition: none; }
+  .sai-nsyao0g6__popup { animation: none; }
+}
+{% endstylesheet %}
