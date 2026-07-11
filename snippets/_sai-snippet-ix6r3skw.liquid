@@ -1,0 +1,611 @@
+{%- comment -%}
+  Featured Reviews — PDP carousel server-rendered from the product's
+  spectrum.featured_reviews metafield. JS drives navigation, auto-rotate,
+  and indicator updates.
+
+  Layout model (Embla-style flex container + translate3d):
+    The viewport has `overflow: hidden` and clips off-screen slides. The
+    track is `display: flex` with all slides laid out in a row. Each slide
+    has `flex: 0 0 calc(100% / N)` (N = cards-per-view), creating a
+    "windowed" effect — N slides visible at a time, the rest hidden by the
+    viewport's overflow clip.
+
+    Navigation translates the track via `transform: translate3d(-Xpx, 0, 0)`
+    where X is the offsetLeft of the target page's first slide. The
+    track-as-a-whole slides smoothly between pages with a CSS transition.
+
+    Slide gap technique (Embla pattern): the track has a negative
+    `margin-left` equal to the slide-spacing, and each slide has matching
+    `padding-left`. This keeps slide widths predictable (padding is included
+    via `box-sizing: border-box`) without relying on `gap` which doesn't
+    contribute to a slide's measured size.
+
+    Partial last page (e.g. 10 reviews / 3 per view → pages [3,3,3,1]) is
+    naturally handled: the track translates to the last slide's offsetLeft
+    even if it's only one slide; remaining viewport space stays empty.
+
+  Page transition (page_transition prop):
+    - 'slide': container transform animates between page offsets (default)
+    - 'fade' : container fades opacity 1→0 mid-animation, snaps to the new
+               offset under 0 opacity, then fades back in
+    - 'none' : container transform jumps with no transition
+    Driven from CSS keyed off `data-transition` on the host element.
+
+  Pointer drag:
+    The track listens for pointer events; during drag, the transform follows
+    the pointer (no transition). On release, JS snaps to the nearest page
+    (or to ±1 page if the drag crossed a velocity / distance threshold)
+    with the configured transition.
+
+  Metafield expected shape (JSON, PUBLIC_READ):
+    {
+      "data": [
+        {
+          "reviews": [
+            { "id", "rating", "title", "body", "authorName",
+              "verificationStatus", "reviewedAt", "media": [...],
+              "reply": { ... } | null }
+          ],
+          "targetingRules": { ... }
+        }
+      ]
+    }
+
+  SSR renders the first entry's reviews (data[0]). The storefront SDK may
+  swap to a personalisation variant client-side; that path is the variant
+  callback in __spectrumAi.snippet.bind — not handled by this template.
+
+  Trust boundary:
+    Metafield data is backend-managed. Field values are emitted through
+    Liquid's built-in escaping ({{ ... }}) or | json filter. No additional
+    sanitisation needed.
+{%- endcomment -%}
+
+{% stylesheet %}
+.sai-ix6r3skw {
+  --sai-ix6r3skw-slide-spacing: 16px;
+  --sai-ix6r3skw-card-padding: 24px;
+  --sai-ix6r3skw-card-bg: #ffffff;
+  --sai-ix6r3skw-card-radius: 12px;
+  --sai-ix6r3skw-text-color: #1a1a1a;
+  --sai-ix6r3skw-author-color: #1a1a1a;
+  --sai-ix6r3skw-star-color: #1a1a1a;
+  --sai-ix6r3skw-quote-color: rgba(0, 0, 0, 0.85);
+  --sai-ix6r3skw-indicator-color: rgba(0, 0, 0, 0.25);
+  --sai-ix6r3skw-indicator-active: rgba(0, 0, 0, 0.85);
+  --sai-ix6r3skw-nav-size: 36px;
+  --sai-ix6r3skw-transition-duration: 350ms;
+  --sai-ix6r3skw-transition-easing: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--sai-ix6r3skw-text-color);
+}
+
+.sai-ix6r3skw *,
+.sai-ix6r3skw *::before,
+.sai-ix6r3skw *::after {
+  box-sizing: border-box;
+}
+
+.sai-ix6r3skw__container {
+  position: relative;
+  width: 100%;
+  padding: 32px calc(var(--sai-ix6r3skw-nav-size) / 2 + 8px);
+  /* Clip at the container's outer edge — the viewport itself stays unclipped
+     so slides may peek into the container's padding zone, but anything past
+     the container boundary is hidden. Chevrons survive because the padding is
+     sized to enclose their half-outside extent. */
+  overflow: hidden;
+}
+
+/* ── Header ── */
+
+.sai-ix6r3skw__header {
+  text-align: var(--sai-ix6r3skw-heading-align, center);
+  margin-bottom: 24px;
+}
+
+.sai-ix6r3skw__heading {
+  font-family: var(--sai-ix6r3skw-heading-font, inherit);
+  font-size: clamp(20px, 2.4vw, 30px);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.sai-ix6r3skw__description {
+  font-family: var(--sai-ix6r3skw-description-font, inherit);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 12px auto 0;
+  max-width: 640px;
+}
+
+.sai-ix6r3skw__top-stars {
+  display: flex;
+  justify-content: var(--sai-ix6r3skw-heading-align, center);
+  gap: 4px;
+  margin-top: 12px;
+  color: var(--sai-ix6r3skw-star-color);
+}
+
+.sai-ix6r3skw[style*="--sai-ix6r3skw-heading-align: left"] .sai-ix6r3skw__top-stars {
+  justify-content: flex-start;
+}
+.sai-ix6r3skw[style*="--sai-ix6r3skw-heading-align: right"] .sai-ix6r3skw__top-stars {
+  justify-content: flex-end;
+}
+
+.sai-ix6r3skw__top-star {
+  flex: 0 0 auto;
+}
+
+/* ── Viewport (NO overflow clip — slides may peek into container padding) ── */
+
+.sai-ix6r3skw__viewport {
+  position: relative;
+  width: 100%;
+}
+
+/* ── Track (Embla container — flex row, transform-driven) ── */
+
+.sai-ix6r3skw__track {
+  display: flex;
+  touch-action: pan-y pinch-zoom;
+  margin-left: calc(var(--sai-ix6r3skw-slide-spacing) * -1);
+  will-change: transform;
+}
+
+.sai-ix6r3skw[data-transition="slide"] .sai-ix6r3skw__track {
+  transition: transform var(--sai-ix6r3skw-transition-duration)
+    var(--sai-ix6r3skw-transition-easing);
+}
+
+.sai-ix6r3skw[data-transition="none"] .sai-ix6r3skw__track {
+  transition: none;
+}
+
+.sai-ix6r3skw[data-transition="fade"] .sai-ix6r3skw__track {
+  transition: opacity calc(var(--sai-ix6r3skw-transition-duration) / 2) ease;
+}
+.sai-ix6r3skw[data-transition="fade"] .sai-ix6r3skw__track.is-fading {
+  opacity: 0;
+}
+
+.sai-ix6r3skw__track.is-dragging {
+  transition: none !important;
+  cursor: grabbing;
+}
+
+/* ── Slide (Embla slide — sized flex item) ── */
+
+.sai-ix6r3skw__slide {
+  flex: 0 0 calc(100% / var(--sai-ix6r3skw-cards-mobile, 1));
+  min-width: 0;
+  padding-left: var(--sai-ix6r3skw-slide-spacing);
+  display: flex;
+}
+
+@media (min-width: 768px) {
+  .sai-ix6r3skw__slide {
+    flex-basis: calc(100% / var(--sai-ix6r3skw-cards-tablet, 2));
+  }
+}
+
+@media (min-width: 1440px) {
+  .sai-ix6r3skw__slide {
+    flex-basis: calc(100% / var(--sai-ix6r3skw-cards-desktop, 3));
+  }
+}
+
+/* ── Card (visual) ── */
+
+.sai-ix6r3skw__card {
+  background: var(--sai-ix6r3skw-card-bg);
+  border-radius: var(--sai-ix6r3skw-card-radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: row;
+  min-height: 280px;
+  width: 100%;
+  min-width: 0;
+}
+
+.sai-ix6r3skw__card--text-only {
+  flex-direction: column;
+}
+
+.sai-ix6r3skw__card-media {
+  flex: 0 0 45%;
+  background: rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  position: relative;
+  min-height: 220px;
+  border-radius: var(--sai-ix6r3skw-card-radius);
+}
+
+.sai-ix6r3skw__card-media-asset {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.sai-ix6r3skw__card-text {
+  flex: 1 1 auto;
+  padding: var(--sai-ix6r3skw-card-padding);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.sai-ix6r3skw__card-quote {
+  color: var(--sai-ix6r3skw-quote-color);
+  flex: 0 0 auto;
+}
+
+.sai-ix6r3skw__card-body {
+  font-family: var(--sai-ix6r3skw-card-body-font, inherit);
+  font-size: 15px;
+  line-height: 1.55;
+  flex: 1 1 auto;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sai-ix6r3skw__card-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: auto;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.sai-ix6r3skw__card-author {
+  font-family: var(--sai-ix6r3skw-card-author-font, inherit);
+  color: var(--sai-ix6r3skw-author-color);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.sai-ix6r3skw__card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: rgba(0, 0, 0, 0.6);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+}
+
+.sai-ix6r3skw__card-date {
+  color: rgba(0, 0, 0, 0.5);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── Navigation chevrons (50% inside / 50% outside viewport) ── */
+
+.sai-ix6r3skw__nav {
+  position: absolute;
+  top: 50%;
+  width: var(--sai-ix6r3skw-nav-size);
+  height: var(--sai-ix6r3skw-nav-size);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(0, 0, 0, 0.75);
+  padding: 0;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+.sai-ix6r3skw__nav--prev {
+  left: 0;
+  transform: translate(-50%, -50%);
+}
+
+.sai-ix6r3skw__nav--next {
+  right: 0;
+  transform: translate(50%, -50%);
+}
+
+.sai-ix6r3skw__nav:hover {
+  background: rgba(255, 255, 255, 1);
+  color: rgba(0, 0, 0, 1);
+}
+
+.sai-ix6r3skw__nav:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Indicator ── */
+
+.sai-ix6r3skw__indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.sai-ix6r3skw__indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--sai-ix6r3skw-indicator-color);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 200ms ease, transform 200ms ease;
+}
+
+.sai-ix6r3skw__indicator-dot--active {
+  background: var(--sai-ix6r3skw-indicator-active);
+  transform: scale(1.15);
+}
+
+.sai-ix6r3skw__indicator--pill {
+  gap: 6px;
+}
+
+.sai-ix6r3skw__indicator-pill {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--sai-ix6r3skw-indicator-color);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: width 280ms cubic-bezier(0.25, 0.46, 0.45, 0.94), background-color 200ms ease;
+}
+
+.sai-ix6r3skw__indicator-pill--active {
+  width: 24px;
+  background: var(--sai-ix6r3skw-indicator-active);
+}
+
+.sai-ix6r3skw__indicator--stepper {
+  gap: 4px;
+}
+
+.sai-ix6r3skw__indicator-step {
+  width: 32px;
+  height: 3px;
+  background: var(--sai-ix6r3skw-indicator-color);
+  border: 0;
+  border-radius: 2px;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 200ms ease;
+}
+
+.sai-ix6r3skw__indicator-step--active {
+  background: var(--sai-ix6r3skw-indicator-active);
+}
+
+/* ── Reduced motion ── */
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-ix6r3skw__track,
+  .sai-ix6r3skw[data-transition="slide"] .sai-ix6r3skw__track,
+  .sai-ix6r3skw[data-transition="fade"] .sai-ix6r3skw__track {
+    transition: none !important;
+  }
+  .sai-ix6r3skw__indicator-dot,
+  .sai-ix6r3skw__indicator-step {
+    transition: none !important;
+  }
+}
+{% endstylesheet %}
+
+<script src="{{ 'sai-snippet-ix6r3skw.js' | asset_url }}" async></script>
+
+{%- assign content = variant.content -%}
+{%- assign heading = content.heading | default: 'Customer Reviews' -%}
+{%- assign heading_align = content.heading_alignment | default: 'center' -%}
+{%- assign description = content.description | default: '' -%}
+{%- assign show_top_stars = content.show_top_stars -%}
+{%- if show_top_stars == nil -%}{%- assign show_top_stars = true -%}{%- endif -%}
+{%- assign nav_mode = content.carousel_nav_mode | default: 'manual_and_auto' -%}
+{%- assign rotation_interval = content.rotation_interval | default: 5 -%}
+{%- assign cards_desktop = content.cards_visible_desktop | default: 3 -%}
+{%- assign cards_tablet = content.cards_visible_tablet | default: 2 -%}
+{%- assign cards_mobile = content.cards_visible_mobile | default: 1 -%}
+{%- assign indicator_type = content.indicator_type | default: 'dots' -%}
+{%- assign page_transition = content.page_transition | default: 'slide' -%}
+{%- assign date_fmt = content.date_format | default: 'relative' -%}
+{%- assign show_date = content.show_date -%}
+{%- if show_date == nil -%}{%- assign show_date = false -%}{%- endif -%}
+{%- assign show_badge = content.show_verified_badge -%}
+{%- if show_badge == nil -%}{%- assign show_badge = false -%}{%- endif -%}
+{%- assign show_media = content.show_review_media -%}
+{%- if show_media == nil -%}{%- assign show_media = true -%}{%- endif -%}
+{%- assign heading_font = content.heading_font_family | default: 'inherit' -%}
+{%- assign description_font = content.description_font_family | default: 'inherit' -%}
+{%- assign card_body_font = content.card_body_font_family | default: 'inherit' -%}
+{%- assign card_author_font = content.card_author_font_family | default: 'inherit' -%}
+
+{%- assign featured_raw = product.metafields.spectrum.featured_reviews.value -%}
+{%- assign reviews_list = blank -%}
+{%- if featured_raw and featured_raw.data and featured_raw.data.size > 0 -%}
+  {%- assign reviews_list = featured_raw.data[0].reviews -%}
+{%- endif -%}
+
+{%- comment -%}
+  No-data guard: if the product has no featured-reviews metafield (or it's empty),
+  render nothing. The wrapper is still emitted by the parent slot, but it'll be
+  an empty container — invisible to shoppers and indistinguishable from snippets
+  the targeting/conflict-resolution layer chose to hide.
+{%- endcomment -%}
+{%- if reviews_list == blank or reviews_list.size == 0 -%}
+  {%- comment -%} render nothing — no heading, no skeleton, no empty state {%- endcomment -%}
+{%- else -%}
+
+<sai-ix6r3skw
+  class="sai-ix6r3skw"
+  data-product-handle="{{ product.handle }}"
+  data-product-id="{{ product.id }}"
+  data-nav-mode="{{ nav_mode }}"
+  data-rotation-interval="{{ rotation_interval }}"
+  data-indicator-type="{{ indicator_type }}"
+  data-transition="{{ page_transition }}"
+  data-date-format="{{ date_fmt }}"
+  data-show-media="{{ show_media }}"
+  data-show-badge="{{ show_badge }}"
+  style="--sai-ix6r3skw-cards-desktop: {{ cards_desktop }}; --sai-ix6r3skw-cards-tablet: {{ cards_tablet }}; --sai-ix6r3skw-cards-mobile: {{ cards_mobile }}; --sai-ix6r3skw-heading-align: {{ heading_align }}; --sai-ix6r3skw-heading-font: {{ heading_font }}; --sai-ix6r3skw-description-font: {{ description_font }}; --sai-ix6r3skw-card-body-font: {{ card_body_font }}; --sai-ix6r3skw-card-author-font: {{ card_author_font }};"
+>
+  <div class="sai-ix6r3skw__container">
+
+    {%- comment -%} ── Heading + optional description + top stars ── {%- endcomment -%}
+    <div class="sai-ix6r3skw__header">
+      {%- if heading != blank -%}
+        <h2 class="sai-ix6r3skw__heading">{{ heading }}</h2>
+      {%- endif -%}
+      {%- if description != blank -%}
+        <p class="sai-ix6r3skw__description">{{ description }}</p>
+      {%- endif -%}
+      {%- if show_top_stars -%}
+        <div class="sai-ix6r3skw__top-stars" aria-hidden="true">
+          {%- for i in (1..5) -%}
+            <svg class="sai-ix6r3skw__top-star" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.27 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+          {%- endfor -%}
+        </div>
+      {%- endif -%}
+    </div>
+
+    {%- comment -%}
+      ── Carousel viewport ──
+      Viewport is a positioning context for the nav chevrons (which sit half
+      inside / half outside its edges). The track is a grid that exactly fills
+      the viewport; cards outside the current page are display:none.
+    {%- endcomment -%}
+      <div class="sai-ix6r3skw__viewport" data-slot="viewport">
+        {%- comment -%}
+          Navigation chevrons live inside the viewport so they centre on the
+          card row vertically. Their CSS uses left:0 / right:0 with
+          translate(±50%, -50%) to sit half outside the viewport horizontally —
+          the wrapper has matching horizontal padding so they don't overflow
+          the snippet's outer bounds.
+        {%- endcomment -%}
+        {%- if nav_mode != 'auto' -%}
+          <button class="sai-ix6r3skw__nav sai-ix6r3skw__nav--prev" type="button" data-action="prev" aria-label="Previous review" hidden>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M12 4L6 10L12 16" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="sai-ix6r3skw__nav sai-ix6r3skw__nav--next" type="button" data-action="next" aria-label="Next review" hidden>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M8 4L14 10L8 16" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        {%- endif -%}
+        <div class="sai-ix6r3skw__track" data-slot="track">
+          {%- for r in reviews_list -%}
+            {%- assign r_rating = r.rating | default: 0 | times: 1 | round -%}
+            {%- assign r_title = r.title -%}
+            {%- assign r_body = r.body -%}
+            {%- assign r_author = r.authorName | default: 'Anonymous' -%}
+            {%- assign r_date = r.reviewedAt -%}
+            {%- assign r_verify = r.verificationStatus -%}
+            {%- assign r_media = r.media -%}
+            {%- assign r_media_first = blank -%}
+            {%- if show_media and r_media and r_media.size > 0 -%}
+              {%- for m in r_media limit: 1 -%}
+                {%- assign r_media_first = m -%}
+              {%- endfor -%}
+            {%- endif -%}
+
+            {%- comment -%}
+              Each review is wrapped in a `__slide` (Embla "slide") whose
+              width / padding handles layout, and a `__card` (the visible
+              card) which handles content + visual styling.
+            {%- endcomment -%}
+            <div
+              class="sai-ix6r3skw__slide"
+              data-slot="slide"
+              data-card-index="{{ forloop.index0 }}"
+            >
+              <article class="sai-ix6r3skw__card{% if r_media_first != blank %} sai-ix6r3skw__card--with-media{% else %} sai-ix6r3skw__card--text-only{% endif %}"
+                data-slot="card"
+                data-review-id="{{ r.id }}"
+                data-review-rating="{{ r_rating }}"
+                data-review-date="{{ r_date }}"
+              >
+                {%- if r_media_first != blank -%}
+                  <div class="sai-ix6r3skw__card-media">
+                    {%- if r_media_first.mediaType == 'video' -%}
+                      <video class="sai-ix6r3skw__card-media-asset" src="{{ r_media_first.url }}" muted playsinline loop preload="metadata"></video>
+                    {%- else -%}
+                      <img class="sai-ix6r3skw__card-media-asset" src="{{ r_media_first.url }}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'">
+                    {%- endif -%}
+                  </div>
+                {%- endif -%}
+
+                <div class="sai-ix6r3skw__card-text">
+                  <svg class="sai-ix6r3skw__card-quote" width="28" height="22" viewBox="0 0 28 22" fill="currentColor" aria-hidden="true">
+                    <path d="M11 0v8.4C11 14 7.5 18 2.6 19.6L0 17.2C2.8 16 4.5 14.3 5 12.4H0V0h11zm17 0v8.4c0 5.6-3.5 9.6-8.4 11.2L17 17.2c2.8-1.2 4.5-2.9 5-4.8h-5V0h11z"/>
+                  </svg>
+                  {%- if r_body != blank -%}
+                    <div class="sai-ix6r3skw__card-body">{{ r_body }}</div>
+                  {%- endif -%}
+                  <div class="sai-ix6r3skw__card-footer">
+                    <span class="sai-ix6r3skw__card-author">{{ r_author | upcase }}</span>
+                    {%- if show_badge and r_verify == 'verified_buyer' -%}
+                      <span class="sai-ix6r3skw__card-badge" aria-label="Verified buyer">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        Verified
+                      </span>
+                    {%- endif -%}
+                    {%- if show_date and r_date -%}
+                      <time class="sai-ix6r3skw__card-date" datetime="{{ r_date }}" data-iso="{{ r_date }}">
+                        {{ r_date | date: '%m/%d/%Y' }}
+                      </time>
+                    {%- endif -%}
+                  </div>
+                </div>
+              </article>
+            </div>
+          {%- endfor -%}
+        </div>
+      </div>
+
+      {%- comment -%} ── Progress indicator (rendered by JS to match page count) ── {%- endcomment -%}
+      {%- if indicator_type != 'none' -%}
+        <div class="sai-ix6r3skw__indicator sai-ix6r3skw__indicator--{{ indicator_type }}" data-slot="indicator" aria-label="Carousel pages"></div>
+      {%- endif -%}
+
+  </div>
+</sai-ix6r3skw>
+
+{%- comment -%}
+  Seed JSON for JS hydration — review count, settings echoed for
+  applyVariant, and ISO timestamps for client-side relative-date rendering.
+{%- endcomment -%}
+<script type="application/json" data-sai-ix6r3skw-seed>
+{
+  "totalReviews": {%- if reviews_list != blank -%}{{ reviews_list.size | json }}{%- else -%}0{%- endif -%},
+  "navMode": {{ nav_mode | json }},
+  "rotationInterval": {{ rotation_interval | json }},
+  "indicatorType": {{ indicator_type | json }},
+  "pageTransition": {{ page_transition | json }},
+  "dateFormat": {{ date_fmt | json }},
+  "cardsVisible": {
+    "desktop": {{ cards_desktop | json }},
+    "tablet": {{ cards_tablet | json }},
+    "mobile": {{ cards_mobile | json }}
+  }
+}
+</script>
+{%- endif -%}
