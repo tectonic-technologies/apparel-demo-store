@@ -36,12 +36,12 @@
               }>
 
   Trust boundary:
-    Backend-supplied content is trusted by contract. The snippet is a
-    passive renderer: answerHtml is emitted raw via {{ item.answerHtml }}
-    with no sanitisation, no transform, no escape. If the data shape is
-    wrong, the playbook author / portal write path is responsible — not
-    this template. Do NOT add `| escape`, `| strip_html`, or any other
-    filter here in an attempt to defend against hostile content.
+    answerHtml is centrally sanitized before persistence and is the only FAQ
+    item field emitted raw via {{ item.answerHtml }}.
+    Question and category are always escaped at this render boundary; the
+    handleized id is escaped too.
+    Do NOT add a filter to answerHtml without changing the central rich-content
+    contract, because escaping it would display approved markup as text.
 
   Analytics:
     - data-faq-id is derived from `item.question | handleize` so analytics
@@ -693,6 +693,8 @@
   data-proxy-base="/apps/spectrum"
   data-single-open="{{ single_open }}"
   data-max-faqs="{{ max_faqs }}"
+  data-show-qa="{{ show_qa }}"
+  data-show-branding="{{ show_branding }}"
 >
   <div class="sai-f4qpdp01__container">
 
@@ -711,13 +713,13 @@
         {%- for item in items limit: faq_limit -%}
           <details
             class="sai-f4qpdp01__item"
-            data-faq-id="{{ item.question | handleize }}"
-            data-faq-category="{{ item.category | default: '' }}"
+            data-faq-id="{{ item.question | handleize | escape }}"
+            data-faq-category="{{ item.category | default: '' | escape }}"
             data-index="{{ forloop.index0 }}"
             role="listitem"
           >
             <summary class="sai-f4qpdp01__summary">
-              <span class="sai-f4qpdp01__question">{{ item.question }}</span>
+              <span class="sai-f4qpdp01__question">{{ item.question | escape }}</span>
               <span class="sai-f4qpdp01__chevron" aria-hidden="true">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" focusable="false">
                   <path d="M3 5L7 9L11 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -731,9 +733,7 @@
       {%- endif -%}
     </div>
 
-    <section class="sai-f4qpdp01__ask" data-spectrum-ai-required
-      {%- unless show_qa %} hidden{%- endunless -%}
-    >
+    <section class="sai-f4qpdp01__ask" data-spectrum-ai-required hidden>
       <div class="sai-f4qpdp01__ask-header">
         <span class="sai-f4qpdp01__sparkles" aria-hidden="true">
           <svg width="18" height="18" viewBox="0 0 18 18" fill="none" focusable="false">
@@ -765,9 +765,7 @@
       <div class="sai-f4qpdp01__exchange" data-slot="exchange" role="status" aria-live="polite" hidden></div>
     </section>
 
-    <footer class="sai-f4qpdp01__footer" data-branding
-      {%- unless show_branding %} hidden{%- endunless -%}
-    >
+    <footer class="sai-f4qpdp01__footer" data-branding hidden>
       <span class="sai-f4qpdp01__brand">Powered by Spectrum AI</span>
       <span class="sai-f4qpdp01__divider" aria-hidden="true">|</span>
       <span class="sai-f4qpdp01__disclaimer">This answer is AI-generated. Please double check important information.</span>
