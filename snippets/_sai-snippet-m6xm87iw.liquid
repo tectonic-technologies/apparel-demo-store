@@ -1,0 +1,1428 @@
+{% doc %}
+  Virtual Compare — a full-page experience that places a set of products
+  on the shopper from one uploaded photo, then lets them add to cart or open a
+  product.
+
+  This file is the SSR body only. The platform-generated wrapper supplies the
+  outer container `<div>` (the visibility gate, the `data-spectrum-*`
+  attributes). Unlike the PDP try-on snippet, this snippet is PAGE-scoped and
+  has no `product` global: the products to try on come from the page URL query
+  (`?products=<handle>,<handle>,…`) and are fetched client-side via
+  `Spectrum.products.getByHandle`. The body therefore SSRs only the masthead
+  (for LCP), an empty mount root, and a JSON props block; the JS asset builds
+  the whole flow (collection → photo → looks → mini-PDP) client-side.
+
+  @param {string} mutation_handle - Mutation handle for DOM scoping (infrastructure).
+  @param {string} experience_handle - Experience handle for attribution (infrastructure).
+  @param {object} variant - Resolved snippet-instance variant; merchant-edited
+                            props live on `variant.content`.
+  @param {object} mo - spectrum_snippet_instance metaobject drop.
+
+  variant.content fields (presentation only):
+    - eyebrow                  {string}  small label above the heading
+    - heading                  {string}  studio headline
+    - subheading               {string}  optional line above the product grid on the first screen (blank → hidden)
+    - cta_text                 {string}  start-button label
+    - fallback_collection      {string}  collection handle shown when the URL has no products (blank → featured)
+    - daily_generation_limit   {number}  per-shopper daily generation cap
+    - consent_text             {string}  consent copy — the dedicated consent step body, and (when inline_consent is on) the fine print under the product-list consent checkbox; carries the biometric (face) data disclosure and the third-party AI processor; the engineering default needs legal sign-off before live biometric collection
+    - inline_consent           {boolean} default on — drop the dedicated consent step and gate the product-list start button on a single inline consent checkbox; set false for the dedicated consent step; consent record is unchanged
+    - step1_heading            {string}  heading on the consent step (blank → platform default; unused when inline_consent is on)
+    - step2_heading            {string}  heading on the add-a-photo step (blank → platform default)
+    - step2_subheading         {string}  guidance under the add-a-photo heading (blank → platform default)
+    - step2_confirm_heading    {string}  title beside the uploaded photo once ready (blank → platform default)
+    - step2_confirm_subheading {string}  note beside the uploaded photo once ready (blank → platform default)
+    - step3_heading            {string}  heading template on the results step; {count} → look count (blank → automatic singular/plural default)
+    - step3_subheading         {string}  optional line under the results heading (blank → hidden)
+    - show_branding            {boolean} show the Spectrum watermark on the result images (internal)
+
+  @example
+  {% render '_sai-snippet-m6xm87iw',
+    variant: variant,
+    mo: mo,
+    mutation_handle: 'mut-m6xm87iwabcd1234',
+    experience_handle: 'try-on-studio'
+  %}
+{% enddoc %}
+
+{%- comment -%}
+  Page-scoped: the products are NOT known at render time — they live in the URL
+  query string and are resolved client-side. So there is no product SSR here and
+  no product-conditional gate; the snippet always renders its shell, and the JS
+  reads `?products=` (falling back to the merchant's `fallback_collection`, then
+  the store's featured products).
+
+  JSON data block contract: every interpolated value is piped through `| json`.
+  `| json` unicode-escapes `<`, `>`, and line separators, so merchant-authored
+  strings (consent copy, headings) cannot terminate the surrounding <script>
+  element. Never `| escape` inside a JSON <script> block — HTML entities are not
+  decoded inside <script> raw-text, which breaks the client-side JSON.parse.
+{%- endcomment -%}
+
+{% stylesheet %}
+/* Virtual Compare (m6xm87iw) — full-page multi-product try-on.
+   Every colour/typography value derives from the merchant's --sai-* theme
+   tokens; the design role-colours below map the editorial studio look onto
+   whatever palette the storefront ships, so the studio reads native on any
+   theme rather than carrying a hardcoded palette. */
+
+.sai-m6xm87iw {
+  /* Re-base every surface off-white (#f8f8f6) instead of the theme's white
+     --sai-color-bg; the plate/surface tokens below derive from this token. */
+  --sai-color-bg: #f8f8f6;
+  /* Design role-colours mapped onto theme tokens (ink ramp + accent + stage). */
+  --v-ink: var(--sai-color-fg);
+  --v-ink-2: color-mix(in srgb, var(--sai-color-fg) 64%, transparent);
+  --v-ink-3: color-mix(in srgb, var(--sai-color-fg) 42%, transparent);
+  --v-line: color-mix(in srgb, var(--sai-color-fg) 14%, transparent);
+  --v-line-2: color-mix(in srgb, var(--sai-color-fg) 8%, transparent);
+  --v-plate: color-mix(in srgb, var(--sai-color-fg) 6%, var(--sai-color-bg));
+  --v-accent: var(--sai-color-primary);
+  --v-accent-fg: var(--sai-color-primary-fg);
+  --v-accent-soft: color-mix(in srgb, var(--v-accent) 12%, var(--sai-color-bg));
+  --v-on-stage: #ffffff;
+  --v-surface: color-mix(in srgb, var(--sai-color-fg) 4%, var(--sai-color-bg));
+  /* Success (Photo ready): prefer the theme token, fall back to a fixed green so
+     the badge never renders colourless on themes without --sai-color-success. */
+  --v-success: var(--sai-color-success, rgb(31 138 77));
+  --v-success-soft: color-mix(in srgb, var(--v-success) 14%, var(--sai-color-bg));
+
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-block-size: 60vh;
+  padding-block: var(--sai-size-6);
+  background-color: var(--sai-color-bg);
+  color: var(--v-ink);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+}
+
+.sai-m6xm87iw *,
+.sai-m6xm87iw *::before,
+.sai-m6xm87iw *::after {
+  box-sizing: border-box;
+}
+
+/* Centered content column. */
+.sai-m6xm87iw__inner {
+  inline-size: 100%;
+  max-inline-size: 1120px;
+  margin-inline: auto;
+}
+
+/* Eyebrow — the small uppercase label above each screen's own heading. */
+.sai-m6xm87iw__eyebrow {
+  margin: 0 0 var(--sai-size-2);
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--v-ink-2);
+}
+
+/* Mount root — the JS renders each screen (collection / photo / looks /
+   mini-PDP) into this node. SSR shows a quiet loading state so the page is
+   never blank before the asset boots (and a noscript fallback). */
+.sai-m6xm87iw__root {
+  position: relative;
+  min-block-size: 40vh;
+}
+
+/* Skeleton — the SSR placeholder shown until the JS renders the real collection
+   (covers both the storefront-SDK wait and the product fetch). It mirrors the
+   collection grid so the swap to real products is a seamless fade-in, not a
+   spinner-then-jump. */
+.sai-m6xm87iw__skel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--sai-size-5) var(--sai-size-4);
+}
+
+@media (min-width: 750px) {
+  .sai-m6xm87iw__skel-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 240px));
+    justify-content: center;
+    gap: var(--sai-size-6) var(--sai-size-5);
+  }
+}
+
+.sai-m6xm87iw__skel-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Skeleton boxes each carry a non-breaking space in markup so themes that reset
+   `div:empty { display: none }` (Dawn's base.css does) can't hide them. overflow is
+   clipped so the filler space can't grow the box past its intended size. No explicit
+   inline-size on the plate: the flex-column card's `align-items: stretch` sets the
+   width and aspect-ratio derives the height. */
+.sai-m6xm87iw__skel-plate {
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: var(--sai-radius-md);
+}
+
+.sai-m6xm87iw__skel-line {
+  block-size: 0.75em;
+  margin-block-start: var(--sai-size-2);
+  overflow: hidden;
+  border-radius: var(--sai-radius-sm);
+}
+
+.sai-m6xm87iw__skel-line--name {
+  inline-size: 68%;
+}
+
+.sai-m6xm87iw__skel-line--price {
+  inline-size: 34%;
+  block-size: 0.9em;
+}
+
+/* The shimmer — a highlight sweep across a plate-toned base. */
+.sai-m6xm87iw__skel-plate,
+.sai-m6xm87iw__skel-line {
+  background-color: var(--v-plate);
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--sai-color-bg) 60%, transparent) 50%,
+    transparent 70%
+  );
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  animation: sai-m6xm87iw-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes sai-m6xm87iw-shimmer {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -80% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-m6xm87iw__skel-plate,
+  .sai-m6xm87iw__skel-line {
+    animation: none;
+  }
+}
+
+.sai-m6xm87iw__noscript {
+  padding-block: var(--sai-size-6);
+  text-align: center;
+  color: var(--v-ink-2);
+}
+
+/* Collection grid (first screen) — the products from the URL, an editorial
+   multi-column grid that collapses to two-up on mobile. */
+/* Mobile is a fixed two-up grid (a narrow viewport can't fit two auto-fit tracks
+   at the card's preferred width, so auto-fit collapses to one column there). From
+   the tablet breakpoint up, auto-fit + centered justification cluster any product
+   count under the centered heading without an empty trailing column. */
+.sai-m6xm87iw__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--sai-size-5) var(--sai-size-4);
+}
+
+@media (min-width: 750px) {
+  .sai-m6xm87iw__grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 240px));
+    justify-content: center;
+    gap: var(--sai-size-6) var(--sai-size-5);
+  }
+}
+
+.sai-m6xm87iw__card {
+  display: flex;
+  flex-direction: column;
+}
+
+.sai-m6xm87iw__plate {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--sai-radius-md);
+  overflow: hidden;
+  background-color: var(--v-plate);
+}
+
+.sai-m6xm87iw__plate-img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.sai-m6xm87iw__cname {
+  margin-block-start: var(--sai-size-2);
+  font-size: 0.8125rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.sai-m6xm87iw__cprice {
+  margin-block-start: 0.125rem;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 0.9375rem;
+  color: var(--v-ink-2);
+}
+
+/* Sticky start bar — the single "Try these on" CTA that opens the photo flow. */
+.sai-m6xm87iw__startbar {
+  position: sticky;
+  inset-block-end: var(--sai-size-3);
+  display: flex;
+  justify-content: center;
+  margin-block-start: var(--sai-size-6);
+}
+
+/* Action buttons — primary (filled, theme accent) / ghost. */
+.sai-m6xm87iw__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sai-size-2);
+  min-block-size: 3.25rem;
+  padding: var(--sai-size-2) var(--sai-size-6);
+  border: 1px solid transparent;
+  border-radius: var(--sai-radius-md);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  line-height: 1.3;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-m6xm87iw__action[hidden] {
+  display: none;
+}
+
+.sai-m6xm87iw__action[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (hover: hover) {
+  .sai-m6xm87iw__action:not([disabled]):hover {
+    opacity: 0.88;
+  }
+}
+
+.sai-m6xm87iw__action:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+.sai-m6xm87iw__action--primary {
+  background-color: var(--v-accent);
+  border-color: var(--v-accent);
+  color: var(--v-accent-fg);
+}
+
+.sai-m6xm87iw__action--ghost {
+  background-color: transparent;
+  border-color: color-mix(in srgb, currentColor 35%, transparent);
+  color: currentColor;
+}
+
+.sai-m6xm87iw__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+}
+
+.sai-m6xm87iw__icon svg {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-m6xm87iw__action {
+    transition: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Message / centered card states (consent, photo, processing). A single
+   max-width column keeps short forms from stretching edge-to-edge on desktop.
+   ───────────────────────────────────────────────────────────────────────── */
+.sai-m6xm87iw__message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-block: var(--sai-size-7);
+  text-align: center;
+  color: var(--v-ink-2);
+}
+
+.sai-m6xm87iw__panel-card {
+  inline-size: 100%;
+  /* Column width is in em (relative to this snippet's own font-size), not rem:
+     many merchant themes set `html { font-size: 62.5% }`, which would collapse a
+     rem-based column to ~62% of its intended width and cramp the form. */
+  max-inline-size: 30em;
+  margin-inline: auto;
+  padding-block: var(--sai-size-5);
+  /* A consent/photo step is a form, not an editorial gallery — left-aligned
+     reads cleanly and keeps the header axis flush with the checkbox list. */
+  text-align: start;
+}
+
+/* The step's primary action spans the form column; the back link centers below it. */
+.sai-m6xm87iw__panel-card .sai-m6xm87iw__action--primary {
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-2);
+}
+
+.sai-m6xm87iw__panel-card .sai-m6xm87iw__link {
+  display: block;
+  inline-size: fit-content;
+  margin-inline: auto;
+}
+
+.sai-m6xm87iw__panel-h {
+  margin: 0 0 var(--sai-size-2);
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  line-height: 1.12;
+}
+
+.sai-m6xm87iw__panel-p {
+  margin: 0 0 var(--sai-size-5);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--v-ink-2);
+}
+
+.sai-m6xm87iw__fine {
+  margin: var(--sai-size-4) 0 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--v-ink-3);
+}
+
+.sai-m6xm87iw__link {
+  margin-block-start: var(--sai-size-3);
+  border: none;
+  background: none;
+  color: var(--v-ink);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.sai-m6xm87iw__link:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+/* Consent — one toggle row per scope; the start button enables once all are on. */
+.sai-m6xm87iw__consent-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  margin: 0 0 var(--sai-size-4);
+  text-align: start;
+}
+
+.sai-m6xm87iw__check {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sai-size-3);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.sai-m6xm87iw__check input[type='checkbox'] {
+  flex-shrink: 0;
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  margin-block-start: 0.0625rem;
+  accent-color: var(--v-accent);
+}
+
+.sai-m6xm87iw__check-title {
+  display: block;
+  font-weight: var(--sai-font-body-weight-bold);
+}
+
+.sai-m6xm87iw__check-desc {
+  display: block;
+  color: var(--v-ink-2);
+}
+
+/* Inline-consent gate on the product list (opt-in mode): the single checkbox
+   row plus the full disclosure as fine print, centred above the start button. */
+.sai-m6xm87iw__consent-gate {
+  max-inline-size: 34rem;
+  margin: var(--sai-size-5) auto 0;
+  text-align: start;
+}
+
+/* ── Step 2 — add photo (dropzone / uploading / ready) ─────────────────────
+   Centered column shell hosting the three states. */
+.sai-m6xm87iw__photo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  inline-size: 100%;
+  max-inline-size: 34rem;
+  margin-inline: auto;
+  text-align: center;
+}
+
+/* Drag-and-drop / browse zone (no photo yet). */
+.sai-m6xm87iw__dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sai-size-3);
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-3);
+  padding: var(--sai-size-6) var(--sai-size-4);
+  border: 1.5px dashed var(--v-line);
+  border-radius: var(--sai-radius-lg);
+  background-color: var(--v-surface);
+  color: var(--v-ink);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--sai-duration-1) var(--sai-ease-out-1),
+    background-color var(--sai-duration-1) var(--sai-ease-out-1);
+}
+@media (hover: hover) {
+  .sai-m6xm87iw__dropzone:hover {
+    border-color: var(--v-accent);
+    background-color: color-mix(in srgb, var(--v-accent) 5%, var(--sai-color-bg));
+  }
+}
+.sai-m6xm87iw__dropzone:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+.sai-m6xm87iw__dropzone-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  border-radius: var(--sai-radius-md);
+  background-color: var(--v-accent);
+  color: var(--v-accent-fg);
+}
+/* Constrain the glyph so it sits centred in the accent badge with padding —
+   without this the unsized SVG fills the whole badge edge-to-edge. */
+.sai-m6xm87iw__dropzone-icon svg {
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+}
+.sai-m6xm87iw__dropzone-title {
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+}
+.sai-m6xm87iw__dropzone-hint {
+  font-size: 0.8125rem;
+  color: var(--v-ink-3);
+}
+
+/* "Take a photo" — camera capture, mobile only. On a precise pointer (desktop)
+   the capture attribute is ignored and it would just re-open the picker, so the
+   dropzone's "browse" is the desktop path and this is hidden. */
+.sai-m6xm87iw__photo-actions {
+  display: flex;
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-3);
+}
+@media (hover: hover) and (pointer: fine) {
+  .sai-m6xm87iw__photo-actions {
+    display: none;
+  }
+}
+.sai-m6xm87iw__ghostbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sai-size-2);
+  flex: 1 1 auto;
+  min-block-size: 2.75rem;
+  padding: var(--sai-size-2) var(--sai-size-4);
+  border: 1px solid var(--v-line);
+  border-radius: var(--sai-radius-md);
+  background-color: var(--sai-color-bg);
+  color: var(--v-ink);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  cursor: pointer;
+}
+.sai-m6xm87iw__ghostbtn:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+.sai-m6xm87iw__ghostbtn-ic {
+  inline-size: 1rem;
+  block-size: 1rem;
+}
+
+.sai-m6xm87iw__consent-note {
+  margin-block-start: var(--sai-size-4);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--v-ink-3);
+}
+
+/* Uploading card — replaces the dropzone while an upload is in flight. */
+.sai-m6xm87iw__upload-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-4);
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-3);
+  padding: var(--sai-size-4) var(--sai-size-5);
+  border: 1px solid var(--v-line);
+  border-radius: var(--sai-radius-lg);
+  background-color: var(--sai-color-bg);
+  text-align: start;
+}
+/* Indeterminate spinning ring — fetch() gives no upload progress, so never a %. */
+.sai-m6xm87iw__uring {
+  inline-size: 3rem;
+  block-size: 3rem;
+  flex: none;
+}
+.sai-m6xm87iw__uring svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  animation: sai-m6xm87iw-spin 0.85s linear infinite;
+}
+.sai-m6xm87iw__uring-track { stroke: var(--v-line); }
+.sai-m6xm87iw__uring-arc { stroke: var(--v-accent); }
+@keyframes sai-m6xm87iw-spin { to { transform: rotate(360deg); } }
+.sai-m6xm87iw__upload-meta { flex: 1 1 auto; min-inline-size: 0; }
+.sai-m6xm87iw__upload-title {
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  color: var(--v-ink);
+}
+.sai-m6xm87iw__upload-file {
+  margin-block-start: 0.1875rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--v-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sai-m6xm87iw__upload-cancel {
+  flex: none;
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--v-ink-2);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+@media (hover: hover) { .sai-m6xm87iw__upload-cancel:hover { color: var(--v-ink); } }
+.sai-m6xm87iw__upload-cancel:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+
+/* Photo-ready card — bordered two-column (thumbnail + status). */
+.sai-m6xm87iw__ready-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-4);
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-3);
+  padding: var(--sai-size-4);
+  border: 1px solid var(--v-line);
+  border-radius: var(--sai-radius-lg);
+  background-color: var(--sai-color-bg);
+  text-align: start;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--sai-color-fg) 4%, transparent);
+}
+.sai-m6xm87iw__ready-thumb {
+  position: relative;
+  inline-size: 8.5rem;
+  aspect-ratio: 4 / 5;
+  flex: none;
+  border-radius: var(--sai-radius-md);
+  overflow: hidden;
+  background-color: var(--v-plate);
+}
+.sai-m6xm87iw__ready-thumb-img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+.sai-m6xm87iw__ready-label {
+  position: absolute;
+  inset-block-end: 0.5rem;
+  inset-inline-start: 0.5rem;
+  padding: 0.1875rem 0.4375rem;
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--sai-color-bg) 84%, transparent);
+  color: var(--v-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.625rem;
+}
+.sai-m6xm87iw__ready-info {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sai-size-2);
+}
+.sai-m6xm87iw__ready-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.3125rem 0.6875rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--v-success-soft);
+  color: var(--v-success);
+  font-size: 0.75rem;
+  font-weight: var(--sai-font-body-weight-bold);
+}
+.sai-m6xm87iw__ready-dot {
+  inline-size: 0.4375rem;
+  block-size: 0.4375rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--v-success);
+}
+.sai-m6xm87iw__ready-title {
+  font-size: 1rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  color: var(--v-ink);
+}
+.sai-m6xm87iw__ready-note {
+  margin: 0;
+  font-size: 0.78125rem;
+  line-height: 1.5;
+  color: var(--v-ink-3);
+}
+.sai-m6xm87iw__ready-swap {
+  margin-block-start: 0.125rem;
+  padding: 0.5625rem 0.9375rem;
+  border: 1px solid var(--v-line);
+  border-radius: var(--sai-radius-md);
+  background-color: var(--sai-color-bg);
+  color: var(--v-ink);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  cursor: pointer;
+}
+@media (hover: hover) { .sai-m6xm87iw__ready-swap:hover { border-color: var(--v-accent); color: var(--v-accent); } }
+.sai-m6xm87iw__ready-swap:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+
+/* Footer — Back (left) + Continue (right). Continue is full-width on phones. */
+.sai-m6xm87iw__photo-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sai-size-3);
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-5);
+}
+.sai-m6xm87iw__continue {
+  border: none;
+  border-radius: var(--sai-radius-md);
+  padding: 0.8125rem 1.625rem;
+  background-color: var(--v-accent);
+  color: var(--v-accent-fg);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  cursor: pointer;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--v-accent) 20%, transparent);
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+@media (hover: hover) { .sai-m6xm87iw__continue:not([disabled]):hover { opacity: 0.9; } }
+.sai-m6xm87iw__continue:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+.sai-m6xm87iw__continue[disabled] {
+  background-color: var(--v-plate);
+  color: var(--v-ink-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.sai-m6xm87iw__file-input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sai-m6xm87iw__notice {
+  margin-block-end: var(--sai-size-3);
+  padding: var(--sai-size-2) var(--sai-size-3);
+  border-radius: var(--sai-radius-sm);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.sai-m6xm87iw__notice--error {
+  background-color: color-mix(in srgb, var(--sai-color-fg) 8%, transparent);
+  color: var(--v-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-m6xm87iw__uring svg {
+    animation-duration: 1.6s;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Looks — the contact sheet. One tile per product; each starts blurred
+   ("Developing…") and resolves sharp when its render lands. Reveal is staggered
+   by the JS, so tiles sharpen one after another like a darkroom print.
+   ───────────────────────────────────────────────────────────────────────── */
+.sai-m6xm87iw__looks-head {
+  margin-block-end: var(--sai-size-5);
+  text-align: center;
+}
+
+/* Matches the collection grid: fixed two-up on mobile, centered auto-fit from the
+   tablet breakpoint up so any look count clusters under the centered heading
+   instead of hugging the left with an empty trailing column. */
+.sai-m6xm87iw__looksgrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--sai-size-5) var(--sai-size-4);
+}
+
+@media (min-width: 750px) {
+  .sai-m6xm87iw__looksgrid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 240px));
+    justify-content: center;
+    gap: var(--sai-size-6) var(--sai-size-5);
+  }
+}
+
+.sai-m6xm87iw__tile {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.sai-m6xm87iw__tile--dev {
+  cursor: default;
+}
+
+.sai-m6xm87iw__tile-figure {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--sai-radius-md);
+  overflow: hidden;
+  background-color: var(--v-plate);
+}
+
+.sai-m6xm87iw__tile-img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  transition: filter 0.9s var(--sai-ease-out-1), opacity 0.9s var(--sai-ease-out-1);
+}
+
+.sai-m6xm87iw__tile--dev .sai-m6xm87iw__tile-img {
+  filter: blur(14px) saturate(0.18);
+  opacity: 0.55;
+}
+
+.sai-m6xm87iw__tile--done .sai-m6xm87iw__tile-img {
+  filter: none;
+  opacity: 1;
+}
+
+/* The "Generating…" / error label, centred over the blurred plate; fades out on done. */
+.sai-m6xm87iw__tile-dev {
+  position: absolute;
+  inset-block-end: var(--sai-size-3);
+  inset-inline: 0;
+  text-align: center;
+  font-size: 0.625rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--v-on-stage);
+  text-shadow: 0 1px 6px rgb(0 0 0 / 0.45);
+  transition: opacity 0.5s var(--sai-ease-out-1);
+}
+
+/* Pulse the pending label so a slow render reads as active work, not a stall. */
+.sai-m6xm87iw__tile--dev .sai-m6xm87iw__tile-dev {
+  animation: sai-m6xm87iw-pulse 1.6s var(--sai-ease-out-1) infinite;
+}
+
+@keyframes sai-m6xm87iw-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.sai-m6xm87iw__tile--done .sai-m6xm87iw__tile-dev {
+  opacity: 0;
+}
+
+.sai-m6xm87iw__tile--error .sai-m6xm87iw__tile-img {
+  filter: grayscale(1);
+  opacity: 0.4;
+}
+
+.sai-m6xm87iw__tile--error .sai-m6xm87iw__tile-dev {
+  color: var(--v-on-stage);
+}
+
+.sai-m6xm87iw__tile-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  margin-block-start: var(--sai-size-2);
+}
+
+.sai-m6xm87iw__disclaimer {
+  margin: var(--sai-size-6) auto 0;
+  max-inline-size: 52ch;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--v-ink-3);
+}
+
+/* Results-footer notice, only ever shown to surface a server error (mixed-category
+   compare) or the minimum-products requirement — emphasised over the muted base. */
+.sai-m6xm87iw__disclaimer--error {
+  color: var(--v-ink);
+}
+
+/* One cell of the compare grid, cropped via background geometry. Fills a
+   position:relative container (tile figure / spotlight frame / filmstrip thumb);
+   the container's aspect-ratio is set to the cell's shape so the square grid crops
+   without distortion. */
+.sai-m6xm87iw__cell,
+.sai-m6xm87iw__tile-cell,
+.sai-m6xm87iw__sp-thumb-cell {
+  position: absolute;
+  inset: 0;
+}
+
+/* The filmstrip thumb crops a grid cell too, so it needs its own clip + position
+   context (the tile figure and spotlight frame already provide theirs). */
+.sai-m6xm87iw__sp-thumb {
+  position: relative;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-m6xm87iw__tile-img,
+  .sai-m6xm87iw__tile-dev {
+    transition: none;
+  }
+  .sai-m6xm87iw__tile--dev .sai-m6xm87iw__tile-dev {
+    animation: none;
+    opacity: 1;
+  }
+  .sai-m6xm87iw__tile--dev .sai-m6xm87iw__tile-img {
+    filter: none;
+    opacity: 1;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Spotlight (mini-PDP). Stacks on mobile (image over controls); two columns on
+   desktop (image left, controls right) with the filmstrip spanning the bottom.
+   ───────────────────────────────────────────────────────────────────────── */
+.sai-m6xm87iw__spotlight {
+  display: grid;
+  /* minmax(0, …), not a bare 1fr: the generated slide is a square cell whose
+     width tracks the frame height (58vh). A bare `1fr` (= minmax(auto, 1fr))
+     lets that square's max-content blow the column past the viewport, so the
+     whole stacked column overflows on mobile. The 0 min clamps the track to the
+     available width (the same guard the two-column layout below already uses). */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sai-size-4);
+  max-inline-size: 980px;
+  margin-inline: auto;
+}
+
+@media (min-width: 850px) {
+  .sai-m6xm87iw__spotlight {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    grid-template-areas:
+      'head head'
+      'stage controls'
+      'gthumbs controls';
+    column-gap: var(--sai-size-6);
+    align-items: start;
+  }
+  .sai-m6xm87iw__sp-head {
+    grid-area: head;
+  }
+  .sai-m6xm87iw__sp-stage {
+    grid-area: stage;
+  }
+  .sai-m6xm87iw__sp-controls {
+    grid-area: controls;
+    align-self: start;
+  }
+  /* Only the gallery-thumbnail strip is a direct grid child; the "Compare with"
+     strip is nested inside .sp-controls, so it flows in the right column. */
+  .sai-m6xm87iw__sp-strip {
+    grid-area: gthumbs;
+  }
+  /* Two-column layout: the compare block sits in the controls column and flows
+     normally — undo the mobile bottom-pin. */
+  .sai-m6xm87iw__sp-compare {
+    position: static;
+    padding-block-end: 0;
+  }
+}
+
+.sai-m6xm87iw__sp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sai-size-3);
+}
+
+.sai-m6xm87iw__sp-name {
+  margin: 0;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.0625rem;
+  line-height: 1.25;
+  color: var(--v-ink);
+}
+
+.sai-m6xm87iw__iconbtn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--sai-radius-round);
+  background-color: transparent;
+  color: var(--v-ink);
+  cursor: pointer;
+}
+
+.sai-m6xm87iw__iconbtn .sai-m6xm87iw__icon {
+  inline-size: 1.375rem;
+  block-size: 1.375rem;
+}
+
+.sai-m6xm87iw__iconbtn:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+.sai-m6xm87iw__iconbtn-spacer {
+  inline-size: 2.25rem;
+}
+
+/* The stage hugs the frame's (variable) width and centers in its column, so the
+   nav chevrons — absolutely positioned at the stage's inner edges — stay glued to
+   the media edges regardless of how wide the current slide is. */
+.sai-m6xm87iw__sp-stage {
+  position: relative;
+  inline-size: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Neutral backdrop behind the (width-hugging) media so a portrait slide reads
+     as sitting on a plate rather than floating on the page. Theme-derived so it
+     re-skins with the storefront palette. */
+  background-color: var(--v-plate);
+  border-radius: var(--sai-radius-md);
+}
+
+/* Fixed height, variable width: every slide sits at the same fixed height and the
+   frame hugs the media's natural width — no letterbox, no crop, no distortion. The
+   AI try-on and product media alike keep their own aspect at that height. */
+.sai-m6xm87iw__sp-frame {
+  position: relative;
+  block-size: clamp(340px, 58vh, 540px);
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  border-radius: var(--sai-radius-md);
+  overflow: hidden;
+  background-color: var(--v-plate);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The try-on cell keeps its own aspect (set inline): fixed to the stage height,
+   width derived from the aspect — so it scales with the stage at variable width. */
+.sai-m6xm87iw__sp-cell {
+  position: relative;
+  block-size: 100%;
+  inline-size: auto;
+  max-inline-size: 100%;
+}
+
+/* Product images / videos: fixed to the stage height, natural (variable) width —
+   the frame hugs them so there's no letterbox. Media too wide for the column is
+   capped to it and fit per the merchant's object-fit choice. */
+.sai-m6xm87iw__sp-media {
+  display: block;
+  block-size: 100%;
+  inline-size: auto;
+  max-inline-size: 100%;
+  object-fit: var(--sai-m6xm87iw-spotlight-fit, contain);
+  background-color: var(--v-plate);
+}
+
+.sai-m6xm87iw__sp-mark {
+  position: absolute;
+  inset-block-end: var(--sai-size-2);
+  inset-inline-end: var(--sai-size-3);
+  display: inline-flex;
+  align-items: center;
+  /* On-photo, not a light letterbox (unlike the VTO experience stage), so the
+     mark inks white with a drop-shadow to read over darker try-on imagery. */
+  color: var(--v-on-stage);
+  text-decoration: none;
+}
+
+.sai-m6xm87iw__sp-mark svg {
+  display: block;
+  block-size: 13px;
+  inline-size: auto;
+  fill: currentColor;
+  filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.45));
+}
+
+.sai-m6xm87iw__sp-arrow {
+  position: absolute;
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  border: none;
+  border-radius: var(--sai-radius-round);
+  background-color: color-mix(in srgb, var(--sai-color-bg) 82%, transparent);
+  color: var(--v-ink);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.12);
+  cursor: pointer;
+}
+
+.sai-m6xm87iw__sp-arrow--prev {
+  inset-inline-start: var(--sai-size-2);
+}
+
+.sai-m6xm87iw__sp-arrow--next {
+  inset-inline-end: var(--sai-size-2);
+}
+
+.sai-m6xm87iw__sp-arrow .sai-m6xm87iw__icon {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+}
+
+.sai-m6xm87iw__sp-controls {
+  display: flex;
+  flex-direction: column;
+}
+
+.sai-m6xm87iw__ctl-label {
+  margin: var(--sai-size-3) 0 var(--sai-size-2);
+  font-size: 0.625rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--v-ink-3);
+}
+
+.sai-m6xm87iw__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sai-size-2);
+}
+
+.sai-m6xm87iw__chip {
+  min-block-size: 2.375rem;
+  padding: 0 var(--sai-size-3);
+  border: 1px solid var(--v-line-2);
+  border-radius: var(--sai-radius-sm);
+  background-color: transparent;
+  color: var(--v-ink);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-m6xm87iw__chip[aria-pressed='true'] {
+  border-color: var(--v-accent);
+  background-color: var(--v-accent);
+  color: var(--v-accent-fg);
+}
+
+.sai-m6xm87iw__chip:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+}
+
+.sai-m6xm87iw__sp-add {
+  margin-block-start: var(--sai-size-4);
+  inline-size: 100%;
+}
+
+.sai-m6xm87iw__sp-view {
+  align-self: center;
+}
+
+.sai-m6xm87iw__sp-strip {
+  display: flex;
+  gap: var(--sai-size-2);
+  overflow-x: auto;
+  padding-block: var(--sai-size-1);
+}
+
+.sai-m6xm87iw__sp-thumb {
+  position: relative;
+  flex: 0 0 auto;
+  inline-size: 3.25rem;
+  block-size: 4rem;
+  padding: 0;
+  border: 1.5px solid transparent;
+  border-radius: var(--sai-radius-sm);
+  background-color: var(--v-plate);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.sai-m6xm87iw__sp-thumb[disabled] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.sai-m6xm87iw__sp-thumb--on {
+  border-color: var(--v-accent);
+}
+
+.sai-m6xm87iw__sp-thumb-img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+/* Play badge overlaid on a video thumbnail. */
+.sai-m6xm87iw__sp-thumb-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--v-on-stage);
+  pointer-events: none;
+}
+
+.sai-m6xm87iw__sp-thumb-play svg {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.5));
+}
+
+/* "Compare with" — the other products, below the buy controls. Its thumbnail row
+   (.sp-strip) scrolls horizontally on its own. On a single-column (narrow)
+   viewport it is pinned to the bottom of the screen — see the mobile rule below. */
+.sai-m6xm87iw__sp-compare {
+  margin-block-start: var(--sai-size-4);
+  padding-block-start: var(--sai-size-4);
+  border-block-start: 1px solid var(--v-line);
+}
+
+.sai-m6xm87iw__sp-compare-h {
+  margin: 0 0 var(--sai-size-2);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--v-ink-3);
+}
+
+/* Mobile: pin the compare switcher to the bottom of the viewport so it stays
+   reachable while the shopper scrolls the taller spotlight view. It is the last
+   block in the flow, so position:sticky has no travel room — a fixed bar is the
+   only way to keep it on screen. The buy controls reserve matching bottom space
+   so nothing hides behind the bar at rest. The opaque background is load-bearing:
+   content scrolls underneath the bar. */
+@media (max-width: 849px) {
+  .sai-m6xm87iw__sp-compare {
+    position: fixed;
+    inset-inline: 0;
+    inset-block-end: 0;
+    z-index: 40;
+    margin: 0;
+    padding: var(--sai-size-3) var(--sai-size-4);
+    background-color: var(--sai-color-bg);
+    border-block-start: 1px solid var(--v-line);
+    box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08);
+  }
+  .sai-m6xm87iw__sp-controls {
+    padding-block-end: 8rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-m6xm87iw__chip {
+    transition: none;
+  }
+}
+
+/* Two-column layouts and the compare pin above target ≥850px; add phone tweaks
+   for the photo step here. */
+@media (max-width: 849px) {
+  .sai-m6xm87iw__photo-footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+  .sai-m6xm87iw__continue {
+    inline-size: 100%;
+  }
+  .sai-m6xm87iw__photo-footer .sai-m6xm87iw__link {
+    align-self: center;
+  }
+  .sai-m6xm87iw__ready-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  /* Mobile: show the whole uploaded photo — full width and full natural height,
+     uncropped. The desktop thumb crops to a fixed 4/5 box; on mobile we let the
+     image set its own height so the full-body shot is shown in full. */
+  .sai-m6xm87iw__ready-thumb {
+    inline-size: 100%;
+    block-size: auto;
+    aspect-ratio: auto;
+  }
+  .sai-m6xm87iw__ready-thumb-img {
+    block-size: auto;
+    object-fit: contain;
+  }
+}
+{% endstylesheet %}
+
+{%- assign content = variant.content -%}
+{%- assign cta_text = content.cta_text | default: 'Try these on' -%}
+
+{%- comment -%}
+  show_branding defaults to true. Liquid's `| default:` filter would replace an
+  explicit `false`, so use an explicit nil check.
+{%- endcomment -%}
+{%- if content.show_branding == nil -%}
+  {%- assign show_branding = true -%}
+{%- else -%}
+  {%- assign show_branding = content.show_branding -%}
+{%- endif -%}
+
+{%- comment -%}
+  Spotlight media fit — mirrors the platform PDP-gallery `spotlight_object_fit`
+  control (see the ty137c1l / im4x2uig gallery snippets). Only 'cover' and
+  'contain' are valid CSS object-fit values here; default to the production-safe
+  'contain' on anything else.
+{%- endcomment -%}
+{%- assign spotlight_fit = content.spotlight_object_fit -%}
+{%- if spotlight_fit != 'cover' and spotlight_fit != 'contain' -%}
+  {%- assign spotlight_fit = 'contain' -%}
+{%- endif -%}
+
+<script src="{{ 'sai-snippet-m6xm87iw.js' | asset_url }}" async></script>
+
+<sai-m6xm87iw
+  class="sai-m6xm87iw"
+  data-proxy-base="/apps/spectrum"
+  style="--sai-m6xm87iw-spotlight-fit: {{ spotlight_fit }}"
+>
+  <div class="sai-m6xm87iw__inner">
+    <div class="sai-m6xm87iw__root" data-vto-root>
+      <div class="sai-m6xm87iw__skeleton" data-vto-initial aria-hidden="true">
+        <div class="sai-m6xm87iw__skel-grid">
+          <div class="sai-m6xm87iw__skel-card">
+            <div class="sai-m6xm87iw__skel-plate">&nbsp;</div>
+            <div class="sai-m6xm87iw__skel-line sai-m6xm87iw__skel-line--name">&nbsp;</div>
+            <div class="sai-m6xm87iw__skel-line sai-m6xm87iw__skel-line--price">&nbsp;</div>
+          </div>
+          <div class="sai-m6xm87iw__skel-card">
+            <div class="sai-m6xm87iw__skel-plate">&nbsp;</div>
+            <div class="sai-m6xm87iw__skel-line sai-m6xm87iw__skel-line--name">&nbsp;</div>
+            <div class="sai-m6xm87iw__skel-line sai-m6xm87iw__skel-line--price">&nbsp;</div>
+          </div>
+          <div class="sai-m6xm87iw__skel-card">
+            <div class="sai-m6xm87iw__skel-plate">&nbsp;</div>
+            <div class="sai-m6xm87iw__skel-line sai-m6xm87iw__skel-line--name">&nbsp;</div>
+            <div class="sai-m6xm87iw__skel-line sai-m6xm87iw__skel-line--price">&nbsp;</div>
+          </div>
+        </div>
+      </div>
+      <noscript>
+        <p class="sai-m6xm87iw__noscript">Turn on JavaScript to use the virtual try-on studio.</p>
+      </noscript>
+    </div>
+  </div>
+
+  {%- comment -%}
+    Props-only data block (no product data — products are resolved client-side
+    from the URL). Per-value `| json` per the contract note above.
+  {%- endcomment -%}
+  <script type="application/json" data-vto-payload>
+{
+  "props": {
+    "ctaText": {{ cta_text | json }},
+    "subheading": {{ content.subheading | json }},
+    "fallbackCollection": {{ content.fallback_collection | json }},
+    "dailyGenerationLimit": {{ content.daily_generation_limit | default: 10 | json }},
+    "consentText": {{ content.consent_text | json }},
+    "inlineConsent": {{ content.inline_consent | json }},
+    "step1Heading": {{ content.step1_heading | json }},
+    "step2Heading": {{ content.step2_heading | json }},
+    "step2Subheading": {{ content.step2_subheading | json }},
+    "step2ConfirmHeading": {{ content.step2_confirm_heading | json }},
+    "step2ConfirmSubheading": {{ content.step2_confirm_subheading | json }},
+    "step3Heading": {{ content.step3_heading | json }},
+    "step3Subheading": {{ content.step3_subheading | json }},
+    "showBranding": {{ show_branding | json }}
+  }
+}
+  </script>
+</sai-m6xm87iw>
