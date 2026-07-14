@@ -18,9 +18,12 @@
   direction: before
   element: section:sai-section-m8lz5n26
 {%- endcomment -%}
-{%- comment -%} Inlined: render live for all visitors, not only Studio preview. {%- endcomment -%}
 {%- unless request.design_mode -%}
+{%- if _sai_preview and _sai_url contains '_spectrum_ai_preview=_system-178463768769' or _sai_url contains '|_system-178463768769|' -%}
   {% render '_sai-bl368i1pytx07qejlhh52n2v', sai_state: 'draft' %}
+{%- else -%}
+  {% render '_sai-bl368i1pytx07qejlhh52n2v', sai_state: 'live' %}
+{%- endif -%}
 {%- endunless -%}
 {%- comment -%}
   SPECTRUM_AI_SLOT:END handle=mut-bl368i1pytx07qejlhh52n2v
