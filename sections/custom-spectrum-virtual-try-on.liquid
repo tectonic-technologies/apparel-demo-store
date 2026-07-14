@@ -38,8 +38,6 @@
 {%- unless request.design_mode -%}
 {%- if _sai_preview and _sai_url contains '_spectrum_ai_preview=_system-178463768769' or _sai_url contains '|_system-178463768769|' -%}
   {% render '_sai-y199pcj6oylnywl0gvrh194f', sai_state: 'draft' %}
-{%- else -%}
-  {% render '_sai-y199pcj6oylnywl0gvrh194f', sai_state: 'live' %}
 {%- endif -%}
 {%- endunless -%}
 {%- comment -%}
