@@ -67,6 +67,9 @@
    theme rather than carrying a hardcoded palette. */
 
 .sai-vtryonp1 {
+  /* Re-base every surface off-white (#f8f8f6) instead of the theme's white
+     --sai-color-bg; the plate/surface tokens below derive from this token. */
+  --sai-color-bg: #f8f8f6;
   /* Design role-colours mapped onto theme tokens (ink ramp + accent + stage). */
   --v-ink: var(--sai-color-fg);
   --v-ink-2: color-mix(in srgb, var(--sai-color-fg) 64%, transparent);
