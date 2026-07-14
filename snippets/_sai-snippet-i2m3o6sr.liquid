@@ -80,6 +80,8 @@
   display: block;
   box-sizing: border-box;
   inline-size: 100%;
+  max-inline-size: 1200px;
+  margin-inline: auto;
   padding-block: 32px;
   padding-inline: 20px;
 }
@@ -297,8 +299,9 @@
      the hero box (not the video frame), so they stay anchored correctly even
      when the visible portion of the video shifts. `contain` letterboxes
      instead, which looks like the box "isn't filled" when video and box
-     aspect ratios diverge — undesired here. */
-  object-fit: cover;
+     aspect ratios diverge. Overridden to `contain` so the whole look image is
+     always visible (centered, letterboxed) instead of cropped. */
+  object-fit: contain;
 }
 
 /* ── Coordinate pins ──────────────────────────────────────────────────── */
