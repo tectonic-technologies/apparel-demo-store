@@ -41,8 +41,10 @@
 <!-- SPECTRUM_AI_INFRA:END -->
     {{ content_for_header }}
     {%- if request.page_type == 'collection' -%}
-      {{ 'spectrum-compare.css' | asset_url | stylesheet_tag }}
-      <script src="{{ 'spectrum-compare.js' | asset_url }}" defer></script>
+      {%- if collection.handle == 'cat-tops' or collection.handle == 'cat-eyewear' -%}
+        {{ 'spectrum-compare.css' | asset_url | stylesheet_tag }}
+        <script src="{{ 'spectrum-compare.js' | asset_url }}" defer></script>
+      {%- endif -%}
     {%- endif -%}
   </head>
 
@@ -149,7 +151,9 @@
       {% render 'quick-add-modal' %}
     {% endif %}
     {%- if request.page_type == 'collection' -%}
-      {% render 'spectrum-compare-tray' %}
+      {%- if collection.handle == 'cat-tops' or collection.handle == 'cat-eyewear' -%}
+        {% render 'spectrum-compare-tray' %}
+      {%- endif -%}
     {%- endif -%}
   </body>
 </html>

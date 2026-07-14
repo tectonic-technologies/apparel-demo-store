@@ -28,7 +28,9 @@
       {% render 'quick-add', product: product, section_id: section.id %}
     {% endif %}
     {%- if request.page_type == 'collection' -%}
-      {% render 'spectrum-compare-card-button', card_product: product %}
+      {%- if collection.handle == 'cat-tops' or collection.handle == 'cat-eyewear' -%}
+        {% render 'spectrum-compare-card-button', card_product: product %}
+      {%- endif -%}
     {%- endif -%}
   {% endunless %}
 {% endcapture %}
