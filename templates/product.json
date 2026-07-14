@@ -343,12 +343,17 @@
     "sai_section_fgiatr7w": {
       "type": "sai-section-fgiatr7w",
       "settings": {}
+    },
+    "sai_section_jhnbdzye": {
+      "type": "sai-section-jhnbdzye",
+      "settings": {}
     }
   },
   "order": [
     "main",
     "sai_section_fgiatr7w",
     "sai_section_vuu0xl1v",
+    "sai_section_jhnbdzye",
     "sai_section_a5nm3mm3",
     "sai_section_m8lz5n26"
   ]
