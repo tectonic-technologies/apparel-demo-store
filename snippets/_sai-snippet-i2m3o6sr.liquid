@@ -1,0 +1,1172 @@
+{% doc %}
+  Shop the Look — JS-rendered per-look two-column sections.
+
+  Wrapper contract (per docs/tech/studio-liquid-snippets.md "Library Snippets"):
+    - variant            : default variant from mo.variants.value.variants
+    - slot               : matched shop-the-look slot entry (slot_key="default")
+    - slot_payload       : slot.payload.value
+    - entry              : resolved content entry from the slot payload
+    - looks_union        : union of looks referenced by every slotKey used by variants
+    - mo                 : spectrum_snippet_instance metaobject drop
+    - mutation_handle    : 'mut-{instanceId}' (consumed by wrapper outer div)
+    - experience_handle  : (consumed by wrapper outer div)
+
+  variant.content fields:
+    - section_title         {string}                                centered heading
+    - section_description   {string}                                centered subheading
+    - product_list_layout   {string}                                'grid' | 'carousel'
+    - products_per_row      {string}                                '2' | '3' | '4' (grid only)
+    - image_position        {string}                                'left' | 'right'
+    - image_cards_ratio     {string}                                '50:50' | '60:40' | '40:60'
+    - enable_overlay_card   {boolean}                               hover overlay toggle
+    - cta_text              {string}                                card CTA label
+
+  entry.content fields (from the editorial-look slot payload):
+    - lookHandles           {string[]}                              spectrum_editorial_look handles
+                                                                    in this slot for the product
+
+  Render strategy:
+    - SSR emits the shell, header (title/description), one skeleton section
+      placeholder per look handle, and the bespoke pool block.
+    - The asset JS reads the pool, calls applyVariant on init AND on every
+      targeting swap, and rebuilds each look: hero (with multi-asset carousel
+      when assets.length > 1), pins from the active asset's legends, and the
+      side-column product cards (grid / carousel).
+    - Pool block carries every look's resolved data — for each look: the outfit
+      products as cards (resolved variant data: id / available / price /
+      compare-at, money-formatted prices, image_url-filtered thumb), and the
+      resolved asset list (mp4 picked server-side per asset, image_url filter
+      applied, poster URL) with per-asset legends — each carrying hotspot_x / y
+      plus the hotspot product's id for cross-referencing back to a card.
+
+  @example
+  {% render '_sai-snippet-i2m3o6sr',
+    variant: variant,
+    slot: slot,
+    slot_payload: slot_payload,
+    entry: entry,
+    videos_union: videos_union,
+    mo: mo,
+    mutation_handle: 'mut-i2m3o6srabcd1234',
+    experience_handle: 'pdp-experience'
+  %}
+{% enddoc %}
+
+{%- comment -%}
+  Institutional knowledge:
+    Do not write literal nested tag syntax in this documentation block —
+    Shopify Liquid nests those tags and will reject the file on theme write
+    (see .claude/rules/generated-liquid.md rule #7).
+{%- endcomment -%}
+
+{% stylesheet %}
+/*
+  Shop the Look — author styles. Aggregated into spectrum-snippet.css at
+  install. Per-instance baked CSS (background / spacing / typography / …)
+  is emitted by the wrapper as <style data-spectrum-style>; author selectors
+  stay at (0,1,0) so per-instance rules always win the cascade.
+
+  Theme variables only (no hardcoded colors / fonts / spacing) so the snippet
+  inherits each merchant theme's tokens.
+*/
+
+.sai-i2m3o6sr {
+  --sai-i2m3o6sr-image-fr: 1fr;
+  --sai-i2m3o6sr-cards-fr: 1fr;
+  --sai-i2m3o6sr-hero-radius: 12px;
+  --sai-i2m3o6sr-card-radius: 8px;
+  --sai-i2m3o6sr-pin-size: 16px;
+  --sai-i2m3o6sr-hero-max-h: 520px;
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  padding-block: 32px;
+  padding-inline: 20px;
+}
+
+@media (min-width: 768px) {
+  .sai-i2m3o6sr {
+    padding-inline: 32px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .sai-i2m3o6sr {
+    padding-inline: 48px;
+  }
+}
+
+.sai-i2m3o6sr[data-ratio="60:40"] {
+  --sai-i2m3o6sr-image-fr: 3fr;
+  --sai-i2m3o6sr-cards-fr: 2fr;
+}
+
+.sai-i2m3o6sr[data-ratio="40:60"] {
+  --sai-i2m3o6sr-image-fr: 2fr;
+  --sai-i2m3o6sr-cards-fr: 3fr;
+}
+
+.sai-i2m3o6sr__header {
+  text-align: center;
+  margin-block-end: 24px;
+  padding-inline: 16px;
+}
+
+.sai-i2m3o6sr__section-title {
+  margin: 0 0 8px 0;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  font-weight: 600;
+}
+
+.sai-i2m3o6sr__section-description {
+  margin: 0 auto;
+  max-inline-size: 720px;
+  color: rgb(var(--color-foreground, 18 18 18) / 0.75);
+  line-height: 1.5;
+}
+
+/* Outer looks carousel — each look is one full-width slide that the
+   merchant/visitor can swipe between. Single look => no horizontal
+   scrollbar; multi-look => native browser scroll-snap with arrow + dot
+   controls (added below the carousel by JS).
+
+   Scroll-snap on the X-axis intentionally; vertical page scroll stays
+   unimpeded because hero / cards areas inside each slide use
+   `touch-action: pan-y` (see below) so they don't hijack outer-carousel
+   horizontal gestures. */
+.sai-i2m3o6sr__looks {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  /* The container itself only listens for horizontal pans; vertical pans
+     fall through to the document so the visitor can still scroll the
+     page even if their finger lands inside the looks band. */
+  touch-action: pan-x pan-y;
+}
+
+.sai-i2m3o6sr__looks::-webkit-scrollbar {
+  display: none;
+}
+
+.sai-i2m3o6sr__look {
+  display: grid;
+  gap: 24px;
+  align-items: start;
+  grid-template-columns: 1fr;
+  /* Each look is its own carousel slide — full width, snap-aligned. */
+  flex: 0 0 100%;
+  inline-size: 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  min-inline-size: 0;
+}
+
+/* Outer-carousel frame — wraps the scrollable looks container so the side
+   arrows can absolute-position against the band's bounding box instead of
+   the page. The dots nav below the frame is centered as before. */
+.sai-i2m3o6sr__looks-frame {
+  position: relative;
+}
+
+/* Looks nav (bottom-center) — holds the prev/next chevrons inline, no
+   dots. Arrows used to be side-mounted on the .__looks-frame; they moved
+   to this bottom strip per design feedback so the controls aren't visually
+   competing with the hero edges. */
+.sai-i2m3o6sr__looks-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-block-start: 16px;
+  color: rgb(var(--color-foreground, 18 18 18));
+}
+
+.sai-i2m3o6sr__looks-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 32px;
+  block-size: 32px;
+  padding: 0;
+  border: 1px solid rgb(var(--color-foreground, 18 18 18) / 0.4);
+  border-radius: 50%;
+  background-color: rgb(var(--color-background, 255 255 255));
+  color: rgb(var(--color-foreground, 18 18 18));
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.08);
+}
+
+.sai-i2m3o6sr__looks-arrow svg {
+  inline-size: 10px;
+  block-size: 14px;
+}
+
+@media (min-width: 768px) {
+  .sai-i2m3o6sr__look {
+    grid-template-columns: var(--sai-i2m3o6sr-image-fr) var(--sai-i2m3o6sr-cards-fr);
+    gap: 32px;
+  }
+
+  .sai-i2m3o6sr[data-image-position="right"] .sai-i2m3o6sr__look {
+    grid-template-columns: var(--sai-i2m3o6sr-cards-fr) var(--sai-i2m3o6sr-image-fr);
+  }
+
+  .sai-i2m3o6sr[data-image-position="right"] .sai-i2m3o6sr__look-image {
+    order: 2;
+  }
+
+  .sai-i2m3o6sr[data-image-position="right"] .sai-i2m3o6sr__look-cards {
+    order: 1;
+  }
+}
+
+/* ── Hero (image / video carousel) ────────────────────────────────────── */
+
+.sai-i2m3o6sr__look-image {
+  position: relative;
+  inline-size: 100%;
+  /* Query container so the hero's `block-size: min(100cqw, …)` resolves
+     against this column's width — not the viewport. Lets the hero be
+     square up to the cap, then stretch horizontally at wider columns. */
+  container-type: inline-size;
+}
+
+.sai-i2m3o6sr__hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--sai-i2m3o6sr-hero-radius);
+  background-color: rgb(var(--color-foreground, 18 18 18) / 0.04);
+  /* Hero fills the column width at any image-to-cards ratio. Height is
+     min(column-width, --sai-i2m3o6sr-hero-max-h): square while the column
+     is ≤ 520, then a horizontal rectangle (full-width × 520) when the
+     column grows past the cap (e.g. 60:40 desktop). Using `100cqw` against
+     the look-image container avoids the old trap where aspect-ratio + a
+     max-block-size cap made the browser shrink width to keep the ratio. */
+  inline-size: 100%;
+  block-size: min(100cqw, var(--sai-i2m3o6sr-hero-max-h));
+  /* `pan-y` lets the browser handle vertical page scroll cleanly while
+     horizontal touch gestures stay scoped to our inner asset-swipe
+     handler — the page no longer drags sideways when the visitor swipes
+     between assets, and the gesture doesn't bleed into the outer looks
+     carousel either. */
+  touch-action: pan-y;
+}
+
+.sai-i2m3o6sr__hero-track {
+  position: relative;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.sai-i2m3o6sr__hero-slide {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+.sai-i2m3o6sr__hero-slide[aria-hidden="false"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sai-i2m3o6sr__hero-media {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.sai-i2m3o6sr__hero-img,
+.sai-i2m3o6sr__hero-video {
+  inline-size: 100%;
+  block-size: 100%;
+  /* `cover` fills the full hero square — portrait videos get their top/bottom
+     cropped, landscape get sides cropped. Pin coordinates are percentages of
+     the hero box (not the video frame), so they stay anchored correctly even
+     when the visible portion of the video shifts. `contain` letterboxes
+     instead, which looks like the box "isn't filled" when video and box
+     aspect ratios diverge — undesired here. */
+  object-fit: cover;
+}
+
+/* ── Coordinate pins ──────────────────────────────────────────────────── */
+
+.sai-i2m3o6sr__pins {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Pin color is sourced from `color:` (foreground) so the Styling panel's
+   "Coordinate pin → Color" picker (typography category) drives idle/active/
+   ring states via currentColor. Default white when no styling is set. */
+.sai-i2m3o6sr__pin {
+  position: absolute;
+  top: var(--sai-y, 50%);
+  left: var(--sai-x, 50%);
+  transform: translate(-50%, -50%);
+  inline-size: var(--sai-i2m3o6sr-pin-size);
+  block-size: var(--sai-i2m3o6sr-pin-size);
+  padding: 0;
+  background: transparent;
+  border: 0;
+  pointer-events: auto;
+  cursor: pointer;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(255 255 255);
+}
+
+.sai-i2m3o6sr__pin-dot {
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: 50%;
+  background-color: color-mix(in srgb, currentColor 65%, transparent);
+  box-shadow: 0 0 0 2px rgb(0 0 0 / 0.12);
+  transition: background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.sai-i2m3o6sr__pin:hover .sai-i2m3o6sr__pin-dot,
+.sai-i2m3o6sr__pin--active .sai-i2m3o6sr__pin-dot {
+  background-color: currentColor;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 30%, transparent), 0 1px
+    2px rgb(0 0 0 / 0.2);
+  transform: scale(1.08);
+}
+
+.sai-i2m3o6sr__pin:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
+}
+
+/* ── Asset carousel UI (dots + arrows) ─────────────────────────────────── */
+
+.sai-i2m3o6sr__dots {
+  position: absolute;
+  inset-block-end: 12px;
+  inset-inline: 0;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.sai-i2m3o6sr__dot {
+  inline-size: 6px;
+  block-size: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: rgb(255 255 255 / 0.55);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  cursor: pointer;
+}
+
+.sai-i2m3o6sr__dot--active {
+  background-color: rgb(255 255 255);
+  transform: scale(1.15);
+}
+
+.sai-i2m3o6sr__arrow {
+  /* Inner asset-carousel arrow — smaller and lighter than the outer
+     looks-carousel arrow so the inner control feels secondary to the
+     outer one. */
+  position: absolute;
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  inline-size: 22px;
+  block-size: 22px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: rgb(255 255 255 / 0.55);
+  color: rgb(var(--color-foreground, 18 18 18));
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.1);
+  backdrop-filter: blur(2px);
+}
+
+.sai-i2m3o6sr__arrow svg {
+  inline-size: 12px;
+  block-size: 12px;
+}
+
+.sai-i2m3o6sr__arrow--prev {
+  inset-inline-start: 12px;
+}
+
+.sai-i2m3o6sr__arrow--next {
+  inset-inline-end: 12px;
+}
+
+@media (min-width: 768px) {
+  .sai-i2m3o6sr__arrow {
+    display: inline-flex;
+  }
+}
+
+/* ── Overlay product card (anchored near active pin) ───────────────────── */
+
+.sai-i2m3o6sr__overlay-mount {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sai-i2m3o6sr__overlay-card {
+  position: absolute;
+  top: var(--sai-y, 50%);
+  left: var(--sai-x, 50%);
+  transform: translate(-50%, calc(-100% - 16px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 8px;
+  border-radius: 12px;
+  background-color: rgb(255 255 255 / 0.96);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+  pointer-events: auto;
+  max-inline-size: 220px;
+}
+
+.sai-i2m3o6sr__overlay-thumb {
+  inline-size: 48px;
+  block-size: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.sai-i2m3o6sr__overlay-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.sai-i2m3o6sr__overlay-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Side-column product cards ─────────────────────────────────────────── */
+
+.sai-i2m3o6sr__look-cards {
+  position: relative;
+  min-inline-size: 0;
+}
+
+/* Grid layout — mobile-first 2 cols, desktop honours `products_per_row` prop
+   (2/3/4) via the --sai-i2m3o6sr-cards-cols CSS var set inline by applyVariant.
+   Default 3 matches meta.json.sample. Carousel layout ignores the var. */
+.sai-i2m3o6sr__cards--grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 768px) {
+  .sai-i2m3o6sr__cards--grid {
+    grid-template-columns: repeat(var(--sai-i2m3o6sr-cards-cols, 3), minmax(0, 1fr));
+  }
+}
+
+.sai-i2m3o6sr__cards--carousel {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.sai-i2m3o6sr__cards-track {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  padding-block: 4px;
+  inline-size: 100%;
+}
+
+.sai-i2m3o6sr__cards-track::-webkit-scrollbar {
+  display: none;
+}
+
+.sai-i2m3o6sr__cards--carousel .sai-i2m3o6sr__product-card {
+  flex: 0 0 calc(50% - 8px);
+  scroll-snap-align: start;
+}
+
+.sai-i2m3o6sr__cards-arrow {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 28px;
+  block-size: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: rgb(var(--color-foreground, 18 18 18) / 0.06);
+  color: rgb(var(--color-foreground, 18 18 18) / 0.75);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sai-i2m3o6sr__cards-arrow svg {
+  inline-size: 8px;
+  block-size: 12px;
+}
+
+.sai-i2m3o6sr__cards-arrow--prev {
+  margin-inline-end: 8px;
+}
+
+.sai-i2m3o6sr__cards-arrow--next {
+  margin-inline-start: 8px;
+}
+
+@media (min-width: 1024px) {
+  .sai-i2m3o6sr__cards-arrow {
+    display: inline-flex;
+  }
+}
+
+.sai-i2m3o6sr__product-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--sai-i2m3o6sr-card-radius);
+  background-color: rgb(var(--color-background, 255 255 255));
+  border: 1px solid rgb(var(--color-foreground, 18 18 18) / 0.08);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.sai-i2m3o6sr__product-card--active {
+  border-color: rgb(var(--color-foreground, 18 18 18) / 0.6);
+  box-shadow: 0 0 0 2px rgb(var(--color-foreground, 18 18 18) / 0.16);
+}
+
+/* When a pin is being hovered/tapped, the matching card keeps full opacity
+   and the rest dim — a "spotlight" effect that mirrors the active pin on
+   the hero. The container-level marker class is toggled by highlightCard()
+   so the cascade is a single selector, not per-card. Same pattern applies
+   to the pin layer (see below) so non-active dots fade together. */
+.sai-i2m3o6sr__cards--has-active .sai-i2m3o6sr__product-card {
+  opacity: 0.35;
+  transition: opacity 160ms ease;
+}
+.sai-i2m3o6sr__cards--has-active .sai-i2m3o6sr__product-card--active {
+  opacity: 1;
+}
+.sai-i2m3o6sr__pins--has-active .sai-i2m3o6sr__pin {
+  opacity: 0.35;
+  transition: opacity 160ms ease;
+}
+.sai-i2m3o6sr__pins--has-active .sai-i2m3o6sr__pin--active,
+.sai-i2m3o6sr__pins--has-active .sai-i2m3o6sr__pin:hover {
+  opacity: 1;
+}
+
+.sai-i2m3o6sr__card-link {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.sai-i2m3o6sr__card-thumb {
+  inline-size: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 6px;
+  background-color: rgb(var(--color-foreground, 18 18 18) / 0.04);
+}
+
+.sai-i2m3o6sr__card-thumb--placeholder {
+  display: block;
+}
+
+.sai-i2m3o6sr__card-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.sai-i2m3o6sr__card-price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.875rem;
+}
+
+.sai-i2m3o6sr__card-compare {
+  text-decoration: line-through;
+  color: rgb(var(--color-foreground, 18 18 18) / 0.55);
+}
+
+.sai-i2m3o6sr__card-current {
+  font-weight: 600;
+}
+
+.sai-i2m3o6sr__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-block: 10px;
+  padding-inline: 16px;
+  border: 0;
+  border-radius: 4px;
+  background-color: rgb(var(--color-foreground, 18 18 18));
+  color: rgb(var(--color-background, 255 255 255));
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  inline-size: 100%;
+  /* Cards stretch to equal height in the grid/carousel; push the CTA to the
+     bottom so every card's button aligns regardless of title/price height. */
+  margin-block-start: auto;
+}
+
+.sai-i2m3o6sr__cta[disabled],
+.sai-i2m3o6sr__cta[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Loading state — hide the textual label and overlay a small spinner.
+   Width is preserved by keeping the invisible label in flow. */
+.sai-i2m3o6sr__cta[data-loading="1"] {
+  position: relative;
+  cursor: progress;
+  opacity: 1;
+}
+.sai-i2m3o6sr__cta[data-loading="1"] .sai-i2m3o6sr__cta-label {
+  visibility: hidden;
+}
+.sai-i2m3o6sr__cta-spinner {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  transform: translate(-50%, -50%);
+  inline-size: 16px;
+  block-size: 16px;
+  /* Use currentColor (button text colour) so the spinner inherits whatever
+     the theme paints the CTA label in — works on dark, light and brand
+     themes without depending on the shop's CSS variable shape. Transparent
+     ring + solid top arc gives the rotating quarter-circle silhouette. */
+  border: 2px solid transparent;
+  border-block-start-color: currentColor;
+  border-inline-end-color: currentColor;
+  border-radius: 50%;
+  opacity: 0.95;
+  animation: sai-i2m3o6sr-spin 0.7s linear infinite;
+}
+@keyframes sai-i2m3o6sr-spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+/* ── Mobile-only overrides ─────────────────────────────────────────────── */
+
+@media (max-width: 767px) {
+  .sai-i2m3o6sr__overlay-card {
+    transform: translate(-50%, calc(-100% - 12px));
+    max-inline-size: 180px;
+  }
+
+  .sai-i2m3o6sr__cards--carousel .sai-i2m3o6sr__product-card {
+    flex: 0 0 70%;
+  }
+}
+
+/* ── Mini-PDP quickshop (bottom-sheet on mobile, centered modal on desktop) ──
+   Ported from qsh181xu. Single quickshop element per snippet instance,
+   appended by JS on first multi-variant ATC click. Fixed-positioned over
+   the viewport so it can escape the look section's overflow:hidden.
+   ─────────────────────────────────────────────────────────────────────── */
+.sai-i2m3o6sr__quickshop {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483000 !important;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0) !important;
+  backdrop-filter: blur(0);
+  -webkit-backdrop-filter: blur(0);
+  transition: background-color 0.25s ease, backdrop-filter 0.25s ease, -webkit-backdrop-filter 0.25s ease;
+  pointer-events: auto;
+}
+.sai-i2m3o6sr__quickshop[hidden] { display: none !important; }
+.sai-i2m3o6sr__quickshop--open {
+  background-color: rgba(0, 0, 0, 0.65) !important;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.sai-i2m3o6sr__quickshop-backdrop {
+  position: absolute !important;
+  inset: 0 !important;
+  background: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.sai-i2m3o6sr__quickshop-panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-height: 88vh;
+  background: rgb(var(--color-background, 255 255 255));
+  color: rgb(var(--color-foreground, 18 18 18));
+  border-radius: 16px 16px 0 0;
+  padding: 20px 20px 22px;
+  box-sizing: border-box;
+  transform: translateY(100%);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  pointer-events: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  font-family: var(--font-body-family, inherit);
+}
+.sai-i2m3o6sr__quickshop--open .sai-i2m3o6sr__quickshop-panel {
+  transform: translateY(0);
+}
+.sai-i2m3o6sr__quickshop-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: rgb(var(--color-foreground, 18 18 18));
+  cursor: pointer;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sai-i2m3o6sr__quickshop-close:hover { background: rgba(0, 0, 0, 0.06); }
+.sai-i2m3o6sr__quickshop-header {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 16px;
+  align-items: flex-start;
+  padding-right: 36px;
+}
+.sai-i2m3o6sr__quickshop-media {
+  width: 96px;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.06);
+}
+.sai-i2m3o6sr__quickshop-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sai-i2m3o6sr__quickshop-meta { min-width: 0; padding-top: 4px; }
+.sai-i2m3o6sr__quickshop-title {
+  display: block;
+  font-family: var(--font-heading-family, var(--font-body-family, inherit));
+  font-size: 17px;
+  line-height: 1.25;
+  font-weight: 700;
+  color: rgb(var(--color-foreground, 18 18 18));
+  text-decoration: none;
+  margin: 0 0 8px;
+}
+.sai-i2m3o6sr__quickshop-title:hover { text-decoration: underline; }
+.sai-i2m3o6sr__quickshop-price {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.sai-i2m3o6sr__quickshop-price-compare {
+  font-weight: 400;
+  text-decoration: line-through;
+  opacity: 0.55;
+  font-size: 13px;
+}
+.sai-i2m3o6sr__quickshop-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sai-i2m3o6sr__quickshop-group {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sai-i2m3o6sr__quickshop-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.sai-i2m3o6sr__quickshop-group-name {
+  color: rgb(var(--color-foreground, 18 18 18));
+  opacity: 0.55;
+}
+.sai-i2m3o6sr__quickshop-group-selected {
+  color: rgb(var(--color-foreground, 18 18 18));
+  font-weight: 600;
+}
+.sai-i2m3o6sr__quickshop-group-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sai-i2m3o6sr__quickshop-pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 64px;
+  padding: 10px 14px;
+  background: rgb(var(--color-background, 255 255 255));
+  color: rgb(var(--color-foreground, 18 18 18));
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  border-radius: 999px;
+  font-family: var(--font-body-family, inherit);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  line-height: 1.2;
+  text-align: center;
+  box-sizing: border-box;
+}
+.sai-i2m3o6sr__quickshop-pill:hover { border-color: rgba(0, 0, 0, 0.6); }
+.sai-i2m3o6sr__quickshop-pill--selected,
+.sai-i2m3o6sr__quickshop-pill--selected:hover {
+  border-color: rgb(var(--color-foreground, 18 18 18));
+  border-width: 2px;
+  padding: 9px 13px;
+}
+.sai-i2m3o6sr__quickshop-pill--oos {
+  opacity: 0.45;
+  text-decoration: line-through;
+  cursor: not-allowed;
+}
+.sai-i2m3o6sr__quickshop-pill-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
+}
+.sai-i2m3o6sr__quickshop-atc {
+  width: 100%;
+  margin-top: 4px;
+  padding: 16px 20px;
+  background: rgb(var(--color-foreground, 18 18 18));
+  color: rgb(var(--color-background, 255 255 255));
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-heading-family, var(--font-body-family, inherit));
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.sai-i2m3o6sr__quickshop-atc:hover:not(:disabled) { opacity: 0.88; }
+.sai-i2m3o6sr__quickshop-atc:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Desktop modal — centred panel with constrained width + soft fade-up. */
+@media (min-width: 750px) {
+  .sai-i2m3o6sr__quickshop { align-items: center; }
+  .sai-i2m3o6sr__quickshop-panel {
+    max-width: 420px;
+    max-height: 80vh;
+    border-radius: 16px;
+    transform: translateY(20px);
+    opacity: 0;
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+  .sai-i2m3o6sr__quickshop--open .sai-i2m3o6sr__quickshop-panel {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-i2m3o6sr__quickshop-panel,
+  .sai-i2m3o6sr__quickshop-backdrop {
+    transition: none;
+  }
+}
+{% endstylesheet %}
+
+{%- assign content = variant.content -%}
+{%- assign slot_content = entry.content -%}
+{%- assign section_title = content.section_title -%}
+{%- assign section_description = content.section_description -%}
+{%- assign product_list_layout = content.product_list_layout | default: 'grid' -%}
+{%- assign products_per_row = content.products_per_row | default: '3' -%}
+{%- assign image_position = content.image_position | default: 'left' -%}
+{%- assign image_cards_ratio = content.image_cards_ratio | default: '50:50' -%}
+{%- if content.enable_overlay_card == nil -%}
+  {%- assign enable_overlay_card = true -%}
+{%- else -%}
+  {%- assign enable_overlay_card = content.enable_overlay_card -%}
+{%- endif -%}
+{%- assign cta_text = content.cta_text | default: 'Add to cart' -%}
+{%- assign look_handles = slot_content.lookHandles -%}
+
+{%- if look_handles.size > 0 -%}
+<sai-i2m3o6sr
+  class="sai-i2m3o6sr"
+  data-image-position="{{ image_position }}"
+  data-ratio="{{ image_cards_ratio }}"
+  data-product-list-layout="{{ product_list_layout }}"
+  data-enable-overlay-card="{{ enable_overlay_card }}"
+  data-cta-text="{{ cta_text | escape }}"
+  style="--sai-i2m3o6sr-cards-cols: {{ products_per_row }};"
+>
+  {%- if section_title != blank or section_description != blank -%}
+    <header class="sai-i2m3o6sr__header">
+      {%- if section_title != blank -%}
+        <h2 class="sai-i2m3o6sr__section-title">{{ section_title }}</h2>
+      {%- endif -%}
+      {%- if section_description != blank -%}
+        <p class="sai-i2m3o6sr__section-description">{{ section_description }}</p>
+      {%- endif -%}
+    </header>
+  {%- endif -%}
+
+  {%- comment -%}
+    Skeleton placeholders — one per look handle. JS reads data-handle, looks
+    up pool[handle], then either replaces with a real look section or drops
+    the placeholder when the pool entry is missing (silent-degraded — see
+    .claude/CLAUDE.md error-handling philosophy: this is "no data yet", not
+    an unexpected failure).
+  {%- endcomment -%}
+  <div class="sai-i2m3o6sr__looks" role="list">
+    {%- for handle in look_handles -%}
+      <section
+        class="sai-i2m3o6sr__look sai-i2m3o6sr__look--placeholder"
+        data-handle="{{ handle }}"
+        aria-hidden="true"
+      ></section>
+    {%- endfor -%}
+  </div>
+</sai-i2m3o6sr>
+
+{%- comment -%}
+  Editorial-look pool — sibling of <sai-i2m3o6sr>, NOT inside it (the JS reads
+  it via direct-children iteration on the outer instance container).
+
+  Keyed by editorial-look handle (matches entry.content.lookHandles). Each look
+  resolves via metaobjects.spectrum_editorial_look[handle].
+
+  Per-look:
+  - tagged_products[] — one card per outfit entry
+    (spectrum_editorial_look_outfit_entry). The editorial model carries no
+    per-tag overrides or pre-selected variant, so display name / thumb / variant
+    all derive from the product and its selected-or-first-available variant.
+    tag_id is set to the product id so the side-card list and the per-asset pins
+    share one cross-reference key (the JS matches pin → card by product_id).
+  - assets[] — one per spectrum_editorial_look_asset. Each asset's legends[] are
+    its hotspots (spectrum_editorial_look_hotspot): product_ref + x/y position.
+    legend.tag_id = the hotspot product's id, matching the tagged_products key.
+
+  Per Shopify Liquid:
+  - Reference-list bracket access is broken; use for + offset + limit:1 to
+    deref each entry by index.
+  - Comparison operators are forbidden inside output expressions — they
+    only work inside conditional blocks; we capture booleans via assigns.
+  - Every value emitted in JSON script tags goes through the json filter
+    to escape `</script>` and HTML/JS-unsafe characters.
+{%- endcomment -%}
+<script type="application/json" data-spectrum-snippet-pool>
+{
+  "looks":{
+    {%- for handle in look_handles -%}
+      {%- assign look = metaobjects.spectrum_editorial_look[handle] -%}
+      {%- if look -%}
+      {%- unless forloop.first -%},{%- endunless -%}
+      {{ handle | json }}:{
+        "title":{{ look.title | default: 'Look' | json }},
+        "tagged_products":[
+          {%- comment -%}
+            Look-level product cards — one per outfit entry, rendered next to the
+            asset carousel for every asset within this look. Per-asset hotspots
+            (below) only carry x/y for pin placement; their tag_id
+            cross-references entries here by product id.
+          {%- endcomment -%}
+          {%- if look.outfit != blank -%}
+          {%- assign total_outfit = look.outfit.value.size -%}
+          {%- assign first_tag = true -%}
+          {%- for i in (0..total_outfit) -%}
+            {%- if i >= total_outfit -%}{%- break -%}{%- endif -%}
+            {%- assign outfit_entry = nil -%}
+            {%- for oe in look.outfit.value offset: i limit: 1 -%}
+              {%- assign outfit_entry = oe -%}
+            {%- endfor -%}
+            {%- if outfit_entry -%}
+              {%- assign product = outfit_entry.product.value -%}
+              {%- if product -%}
+                {%- unless first_tag -%},{%- endunless -%}
+                {%- assign first_tag = false -%}
+                {%- assign target_variant = product.selected_or_first_available_variant -%}
+                {%- assign single_variant = false -%}
+                {%- if product.variants.size == 1 -%}{%- assign single_variant = true -%}{%- endif -%}
+                {%- assign thumb_url = '' -%}
+                {%- if product.featured_image != blank -%}
+                  {%- assign thumb_url = product.featured_image | image_url: width: 240 -%}
+                {%- endif -%}
+                {%- assign show_compare = false -%}
+                {%- if target_variant.compare_at_price > target_variant.price -%}
+                  {%- assign show_compare = true -%}
+                {%- endif -%}
+                {
+                  "tag_id":{{ product.id | json }},
+                  "product_id":{{ product.id | json }},
+                  "display_name":{{ product.title | json }},
+                  "thumb_url":{{ thumb_url | json }},
+                  "product_url":{{ product.url | json }},
+                  "single_variant":{{ single_variant | json }},
+                  "variant_id":{{ target_variant.id | json }},
+                  "variant_available":{{ target_variant.available | json }},
+                  "variant_price":{{ target_variant.price | money | json }},
+                  "variant_compare_at_price":{{ target_variant.compare_at_price | money | json }},
+                  "show_compare":{{ show_compare | json }},
+                  "price_override":null,
+                  "cart_url":{{ routes.cart_url | default: '/cart' | json }}
+                }
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- endif -%}
+        ],
+        "assets":[
+          {%- if look.assets != blank -%}
+          {%- assign total_assets = look.assets.value.size -%}
+          {%- assign first_asset_json = true -%}
+          {%- for i in (0..total_assets) -%}
+            {%- if i >= total_assets -%}{%- break -%}{%- endif -%}
+            {%- assign a_ref = nil -%}
+            {%- for ref in look.assets.value offset: i limit: 1 -%}
+              {%- assign a_ref = ref -%}
+            {%- endfor -%}
+            {%- if a_ref -%}
+              {%- assign a_type = a_ref.asset_type.value | default: 'video' -%}
+              {%- assign a_url = '' -%}
+              {%- assign a_poster = '' -%}
+              {%- assign a_media = a_ref.media.value -%}
+              {%- if a_media != blank -%}
+                {%- if a_type == 'image' -%}
+                  {%- assign a_url = a_media | image_url: width: 1200 -%}
+                {%- else -%}
+                  {%- if a_media.sources != blank -%}
+                    {%- for source in a_media.sources -%}
+                      {%- if source.format == 'mp4' and a_url == '' -%}
+                        {%- assign a_url = source.url -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {%- if a_url == '' -%}
+                      {%- assign a_url = a_media.sources.first.url -%}
+                    {%- endif -%}
+                  {%- elsif a_media.url != blank -%}
+                    {%- assign a_url = a_media.url -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endif -%}
+              {%- if a_ref.poster_image.value != blank -%}
+                {%- assign a_poster = a_ref.poster_image.value | image_url: width: 1200 -%}
+              {%- endif -%}
+              {%- unless first_asset_json -%},{%- endunless -%}
+              {%- assign first_asset_json = false -%}
+              {
+                "type":{{ a_type | json }},
+                "url":{{ a_url | json }},
+                "poster_url":{{ a_poster | json }},
+                "alt":{{ a_ref.alt.value | default: '' | json }},
+                "legends":[
+                  {%- comment -%}
+                    Per-asset pin positions, sourced from the asset's hotspots.
+                    Each carries tag_id (= the hotspot product's id) + x/y. tag_id
+                    cross-references the look's `tagged_products` block above so
+                    the side card list and overlay-card lookup share one source
+                    of truth.
+                  {%- endcomment -%}
+                  {%- if a_ref.hotspots != blank -%}
+                  {%- assign total_hotspots = a_ref.hotspots.value.size -%}
+                  {%- assign first_legend = true -%}
+                  {%- for j in (0..total_hotspots) -%}
+                    {%- if j >= total_hotspots -%}{%- break -%}{%- endif -%}
+                    {%- assign hotspot = nil -%}
+                    {%- for hs in a_ref.hotspots.value offset: j limit: 1 -%}
+                      {%- assign hotspot = hs -%}
+                    {%- endfor -%}
+                    {%- if hotspot -%}
+                      {%- assign hotspot_product = hotspot.product_ref.value -%}
+                      {%- if hotspot_product -%}
+                        {%- unless first_legend -%},{%- endunless -%}
+                        {%- assign first_legend = false -%}
+                        {
+                          "tag_id":{{ hotspot_product.id | json }},
+                          "product_id":{{ hotspot_product.id | json }},
+                          "hotspot_x":{{ hotspot.x_position.value | json }},
+                          "hotspot_y":{{ hotspot.y_position.value | json }}
+                        }
+                      {%- endif -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- endif -%}
+                ]
+              }
+            {%- endif -%}
+          {%- endfor -%}
+          {%- endif -%}
+        ]
+      }
+      {%- endif -%}
+    {%- endfor -%}
+  }
+}
+</script>
+
+<script src="{{ 'sai-snippet-i2m3o6sr.js' | asset_url }}" defer></script>
+{%- endif -%}
