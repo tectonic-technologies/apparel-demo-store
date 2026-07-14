@@ -40,6 +40,10 @@
 {% render '_sai-artifacts' %}
 <!-- SPECTRUM_AI_INFRA:END -->
     {{ content_for_header }}
+    {%- if request.page_type == 'collection' -%}
+      {{ 'spectrum-compare.css' | asset_url | stylesheet_tag }}
+      <script src="{{ 'spectrum-compare.js' | asset_url }}" defer></script>
+    {%- endif -%}
   </head>
 
   <body class="page-width-{{ settings.page_width }} card-hover-effect-{{ settings.card_hover_effect }}">
@@ -144,5 +148,8 @@
     {% if settings.quick_add or settings.mobile_quick_add %}
       {% render 'quick-add-modal' %}
     {% endif %}
+    {%- if request.page_type == 'collection' -%}
+      {% render 'spectrum-compare-tray' %}
+    {%- endif -%}
   </body>
 </html>

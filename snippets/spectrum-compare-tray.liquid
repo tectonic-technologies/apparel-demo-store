@@ -1,0 +1,34 @@
+{%- comment -%}
+  Spectrum Virtual Compare — floating compare tray.
+
+  Rendered once near </body> (via layout/theme.liquid). Holds 2–4 products the
+  shopper picked from product cards; "Compare" opens the Virtual Compare page
+  with ?products=<handle>,… Behaviour + item rendering is in
+  assets/spectrum-compare.js. The tray SSRs empty and hidden; the controller
+  fills it from sessionStorage on load.
+
+  The compare destination is resolved from the page whose handle is
+  `spectrum-virtual-compare`, falling back to the conventional path so the tray
+  still links correctly if the page object is not resolvable in this context.
+{%- endcomment -%}
+{%- assign compare_page = pages['spectrum-virtual-compare'] -%}
+<div
+  class="spectrum-cmp-tray"
+  data-spectrum-compare-tray
+  data-compare-url="{{ compare_page.url | default: '/pages/spectrum-virtual-compare' }}"
+  data-min="2"
+  data-max="4"
+  hidden
+>
+  <div class="spectrum-cmp-tray__inner">
+    <div class="spectrum-cmp-tray__label">
+      <span data-cmp-count>0</span>/4
+    </div>
+    <div class="spectrum-cmp-tray__items" data-cmp-items></div>
+    <div class="spectrum-cmp-tray__actions">
+      <button type="button" class="spectrum-cmp-tray__go" data-cmp-go disabled>
+        Compare
+      </button>
+    </div>
+  </div>
+</div>

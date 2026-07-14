@@ -1,0 +1,294 @@
+/* Spectrum Virtual Compare — PLP card CTA + floating compare tray.
+   Colours/typography come from the --sai-* tokens installed by
+   snippets/_sai-artifacts.liquid, so this matches the other Spectrum snippets;
+   plain fallbacks keep it sane if the tokens are ever absent. */
+
+/* ── Card CTA (icon button; mirrors the wishlist card button, opposite corner) ── */
+.spectrum-cmp-btn--card {
+  position: absolute;
+  z-index: 3;
+  inset-inline-start: 0.75rem;
+  inset-block-end: 0.75rem;
+}
+
+.spectrum-cmp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--sai-radius-round, 999px);
+  background: var(--sai-color-bg, #fff);
+  color: var(--sai-color-fg, #111);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.spectrum-cmp-btn:hover {
+  transform: translateY(-1px);
+}
+
+.spectrum-cmp-btn__ic,
+.spectrum-cmp-btn__check {
+  inline-size: 1rem;
+  block-size: 1rem;
+  display: block;
+}
+
+.spectrum-cmp-btn__check {
+  display: none;
+}
+
+/* Visually-hidden accessible label (the icon carries the meaning visually). */
+.spectrum-cmp-btn__label {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.spectrum-cmp-btn--card.is-selected .spectrum-cmp-btn {
+  background: var(--sai-color-primary, #111);
+  color: var(--sai-color-primary-fg, #fff);
+}
+
+.spectrum-cmp-btn--card.is-selected .spectrum-cmp-btn__ic {
+  display: none;
+}
+
+.spectrum-cmp-btn--card.is-selected .spectrum-cmp-btn__check {
+  display: block;
+}
+
+/* Full (max reached) — non-selected cards can't add more. The button stays
+   clickable (no pointer-events:none) so the controller can swallow the click;
+   otherwise it would fall through to the card's product link and open the PDP. */
+.spectrum-cmp-btn--card.is-disabled .spectrum-cmp-btn {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Floating tray ── */
+.spectrum-cmp-tray {
+  position: fixed;
+  z-index: 60;
+  inset-inline: 0;
+  inset-block-end: max(1rem, env(safe-area-inset-bottom));
+  display: flex;
+  justify-content: center;
+  padding-inline: 1rem;
+  pointer-events: none;
+}
+
+.spectrum-cmp-tray[hidden] {
+  display: none;
+}
+
+.spectrum-cmp-tray__inner {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  max-inline-size: min(100%, 720px);
+  padding: 0.75rem 0.875rem;
+  border-radius: var(--sai-radius-md, 14px);
+  background: var(--sai-color-bg, #fff);
+  color: var(--sai-color-fg, #111);
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg, #111) 10%, transparent);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  animation: spectrum-cmp-in 0.2s ease;
+}
+
+@keyframes spectrum-cmp-in {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.spectrum-cmp-tray__label {
+  flex: 0 0 auto;
+  font-family: var(--sai-font-body, inherit);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--sai-color-fg, #111) 70%, transparent);
+}
+
+.spectrum-cmp-tray__items {
+  display: flex;
+  gap: 0.625rem;
+  flex: 1 1 auto;
+  overflow-x: auto;
+}
+
+.spectrum-cmp-tray__item {
+  position: relative;
+  flex: 0 0 auto;
+  inline-size: 4.5rem;
+  block-size: 4.5rem;
+  border-radius: var(--sai-radius-sm, 8px);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--sai-color-fg, #111) 6%, var(--sai-color-bg, #fff));
+}
+
+.spectrum-cmp-tray__item img {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Micro-interactions: a thumbnail pops in when added and shrinks away when
+   removed. The controller commits the removal on animationend, so the leave
+   animation must always finish (no infinite/paused states). */
+@keyframes spectrum-cmp-item-in {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes spectrum-cmp-item-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+}
+
+.spectrum-cmp-tray__item--enter {
+  animation: spectrum-cmp-item-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.spectrum-cmp-tray__item--leaving {
+  animation: spectrum-cmp-item-out 0.18s ease forwards;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spectrum-cmp-tray__item--enter,
+  .spectrum-cmp-tray__item--leaving {
+    animation: none;
+  }
+}
+
+.spectrum-cmp-tray__remove {
+  position: absolute;
+  inset-block-start: 0.25rem;
+  inset-inline-end: 0.25rem;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--sai-radius-round, 999px);
+  background: color-mix(in srgb, var(--sai-color-bg, #fff) 85%, transparent);
+  color: color-mix(in srgb, var(--sai-color-fg, #111) 50%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.spectrum-cmp-tray__remove:hover {
+  background: var(--sai-color-bg, #fff);
+  color: var(--sai-color-fg, #111);
+}
+
+.spectrum-cmp-tray__remove svg {
+  inline-size: 0.6875rem;
+  block-size: 0.6875rem;
+  display: block;
+}
+
+.spectrum-cmp-tray__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+
+.spectrum-cmp-tray__go {
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  border-radius: var(--sai-radius-round, 999px);
+  background: var(--sai-color-primary, #111);
+  color: var(--sai-color-primary-fg, #fff);
+  font-family: var(--sai-font-body, inherit);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.spectrum-cmp-tray__go:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 600px) {
+  /* Compact everything so 4 thumbnails + Compare fit one row on a phone
+     without clipping, and the remove badge stays proportionate to the smaller
+     thumbnail instead of covering the product. */
+  .spectrum-cmp-tray {
+    padding-inline: 0.75rem;
+  }
+
+  .spectrum-cmp-tray__inner {
+    gap: 0.5rem;
+    padding: 0.5rem 0.625rem;
+  }
+
+  .spectrum-cmp-tray__label {
+    display: none;
+  }
+
+  /* Thumbnail row takes only leftover space (flex-basis 0) and scrolls, so the
+     Compare CTA is always pinned and visible even on the narrowest phones. */
+  .spectrum-cmp-tray__items {
+    gap: 0.375rem;
+    flex: 1 1 0;
+    min-inline-size: 0;
+  }
+
+  .spectrum-cmp-tray__item {
+    inline-size: 2.5rem;
+    block-size: 2.5rem;
+  }
+
+  .spectrum-cmp-tray__remove {
+    inline-size: 0.9375rem;
+    block-size: 0.9375rem;
+    inset-block-start: 0.125rem;
+    inset-inline-end: 0.125rem;
+    box-shadow: none;
+  }
+
+  .spectrum-cmp-tray__remove svg {
+    inline-size: 0.4375rem;
+    block-size: 0.4375rem;
+  }
+
+  .spectrum-cmp-tray__go {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+  }
+}

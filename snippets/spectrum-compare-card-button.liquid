@@ -1,0 +1,51 @@
+{%- comment -%}
+  Spectrum Virtual Compare — product-card "Add for compare" toggle.
+
+  Renders an icon CTA on collection/search product cards (mirrors the wishlist
+  card button, opposite corner). Clicking it adds/removes the product from a
+  floating compare tray that links to the Virtual Compare page. All behaviour is
+  in assets/spectrum-compare.js (loaded once via layout/theme.liquid); this
+  snippet only emits the product data the controller reads.
+
+  Accepts:
+  - card_product: {Product} the card's product
+{%- endcomment -%}
+{%- unless card_product == blank -%}
+  <div
+    class="spectrum-cmp-btn--card"
+    data-spectrum-compare-btn
+    data-handle="{{ card_product.handle | escape }}"
+    data-title="{{ card_product.title | escape }}"
+    data-image="{{ card_product.featured_image | image_url: width: 240 | escape }}"
+    data-category="{{ card_product.type | escape }}"
+  >
+    <button
+      type="button"
+      class="spectrum-cmp-btn"
+      aria-pressed="false"
+      aria-label="Add to compare"
+      title="Add to compare"
+    >
+      <svg class="spectrum-cmp-btn__ic" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="12" cy="13" r="3" stroke="currentColor" stroke-width="2" />
+      </svg>
+      <svg class="spectrum-cmp-btn__check" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M5 12l4.5 4.5L19 7"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+      <span class="spectrum-cmp-btn__label" data-cmp-label>Add to compare</span>
+    </button>
+  </div>
+{%- endunless -%}
