@@ -12,9 +12,9 @@
 {%- endif -%}
 
 {%- if sai_state == 'draft' -%}
-  {%- assign sai_handle = 'spectrum_snippet_mg6foqrk_y199pcj6oylnywl0gvrh194f_draft' -%}
+  {%- assign sai_handle = 'spectrum_snippet_w3kyxs19_y199pcj6oylnywl0gvrh194f_draft' -%}
 {%- else -%}
-  {%- assign sai_handle = 'spectrum_snippet_mg6foqrk_y199pcj6oylnywl0gvrh194f_live' -%}
+  {%- assign sai_handle = 'spectrum_snippet_w3kyxs19_y199pcj6oylnywl0gvrh194f_live' -%}
 {%- endif -%}
 
 {%- assign sai_mo = metaobjects.spectrum_snippet_instance[sai_handle] -%}
@@ -43,7 +43,7 @@
     {
     "v":1,
     "instanceId":"y199pcj6oylnywl0gvrh194f",
-    "snippetId":"mg6foqrk",
+    "snippetId":"w3kyxs19",
     "experienceId":"019f4bb6-d6cb-7b28-a801-507042e0c2b5"
     ,"variants":{{ sai_mo.variants.value.variants | json }}
     ,"pools":{
@@ -65,13 +65,13 @@
       {%- if sai_v.css != blank -%}{{ sai_v.css }}{%- endif -%}
     {%- endfor -%}
     </style>
-    <div data-spectrum-instance-id="y199pcj6oylnywl0gvrh194f" data-spectrum-snippet-id="mg6foqrk" data-spectrum-variant-id="{{ sai_default.variantId }}" data-spectrum-vis="{{ sai_vis }}" data-spectrum-lq-snippet="mut-y199pcj6oylnywl0gvrh194f" data-spectrum-experience="_system-178463768769">
+    <div data-spectrum-instance-id="y199pcj6oylnywl0gvrh194f" data-spectrum-snippet-id="w3kyxs19" data-spectrum-variant-id="{{ sai_default.variantId }}" data-spectrum-vis="{{ sai_vis }}" data-spectrum-lq-snippet="mut-y199pcj6oylnywl0gvrh194f" data-spectrum-experience="_system-178463768769">
       <script type="application/json" data-spectrum-envelope>{{ sai_envelope | replace: '</script>', '<\/script>' }}</script>
-      {% render '_sai-snippet-mg6foqrk', variant: sai_default, mo: sai_mo, mutation_handle: 'mut-y199pcj6oylnywl0gvrh194f', experience_handle: '_system-178463768769' %}
+      {% render '_sai-snippet-w3kyxs19', variant: sai_default, mo: sai_mo, mutation_handle: 'mut-y199pcj6oylnywl0gvrh194f', experience_handle: '_system-178463768769' %}
     </div>
   {%- endif -%}
 {%- elsif sai_state == 'draft' -%}
-  <div data-spectrum-instance-id="y199pcj6oylnywl0gvrh194f" data-spectrum-snippet-id="mg6foqrk" data-spectrum-vis="{{ sai_vis }}" data-spectrum-lq-snippet="mut-y199pcj6oylnywl0gvrh194f" data-spectrum-experience="_system-178463768769">
-    <!-- SAI:WRAPPER:EMPTY_DRAFT_MO_MISSING snippetId=mg6foqrk instanceId=y199pcj6oylnywl0gvrh194f -->
+  <div data-spectrum-instance-id="y199pcj6oylnywl0gvrh194f" data-spectrum-snippet-id="w3kyxs19" data-spectrum-vis="{{ sai_vis }}" data-spectrum-lq-snippet="mut-y199pcj6oylnywl0gvrh194f" data-spectrum-experience="_system-178463768769">
+    <!-- SAI:WRAPPER:EMPTY_DRAFT_MO_MISSING snippetId=w3kyxs19 instanceId=y199pcj6oylnywl0gvrh194f -->
   </div>
 {%- endif -%}

@@ -1,0 +1,1394 @@
+{% comment %}
+  Virtual Try-On Experience (w3kyxs19) — standalone "Try-On Studio" section.
+
+  A page-level section (not a PDP CTA): the shopper adds a photo, browses a
+  merchant-curated collection and builds a multi-item look (a tray), then previews
+  the whole look on themselves with AI and adds pieces to cart.
+
+  Wrapper passes (see wrapLibrarySnippetContent):
+    - mutation_handle    {string}  DOM-scoping handle (infrastructure)
+    - experience_handle  {string}  attribution handle (infrastructure)
+    - props              {object}  merchant scalar config (props.heading, props.daily_generation_limit, …)
+    - collections        {array}   resolved Collection Drops from the `collections` prop (one tab each)
+
+  This file is the SSR body only. The platform-generated wrapper supplies the outer
+  container <div> (the visibility gate + data-spectrum-* attributes). The body renders
+  a lightweight frame + a JSON data block for LCP; the full step flow (photo → products
+  → result) is built client-side by the snippet's JS asset.
+
+  THEME-AGNOSTIC CONTRACT (hard rule):
+    - Colours/fonts/spacing come ONLY from the --sai-* token layer. No hardcoded hex,
+      no theme-specific variables (--color-foreground etc.). Derived inks/lines are
+      color-mix() over --sai-color-fg / --sai-color-primary (scoped vars below).
+    - Every class is prefixed sai-w3kyxs19. No global selectors. JS is container-scoped.
+
+  JSON data block contract: every interpolated value is piped through `| json`, which
+  unicode-escapes < > and line separators so merchant/shopper strings cannot terminate
+  the <script>. Never `| escape` inside a JSON <script> block. A nil value piped through
+  `| json` emits `null`, so the block is always valid JSON.
+
+  App proxy: /apps/spectrum/vto/{upload-url,generate,rate-limit}.
+{% endcomment %}
+
+{% stylesheet %}
+/* Virtual Try-On Experience (w3kyxs19). Colours/fonts/spacing: --sai-* tokens only. */
+
+/* Some merchant base stylesheets (Dawn/Horizon) collapse empty block elements
+   with `div:empty { display: none }` (specificity 0,1,1). The progress bar fill
+   and the processing spinner are intentionally empty <div>s drawn purely in CSS;
+   re-assert their box so the theme rule can't hide them. Scoped to the snippet
+   element — `sai-w3kyxs19 div:empty` (0,1,2) outranks the theme's `div:empty`. */
+sai-w3kyxs19 div:empty {
+  display: block;
+}
+
+.sai-w3kyxs19 {
+  /* Role-colours mapped onto the merchant theme. The studio keeps its look on any
+     storefront by deriving its ink/line/accent ramp from --sai-color-fg /
+     --sai-color-primary rather than hardcoding a palette. */
+  --mg-ink: var(--sai-color-fg);
+  --mg-ink-2: color-mix(in srgb, var(--sai-color-fg) 66%, transparent);
+  --mg-ink-3: color-mix(in srgb, var(--sai-color-fg) 44%, transparent);
+  --mg-line: color-mix(in srgb, var(--sai-color-fg) 13%, transparent);
+  --mg-line-2: color-mix(in srgb, var(--sai-color-fg) 8%, transparent);
+  --mg-surface: color-mix(in srgb, var(--sai-color-fg) 4%, var(--sai-color-bg));
+  --mg-surface-2: color-mix(in srgb, var(--sai-color-fg) 6%, var(--sai-color-bg));
+  --mg-accent: var(--sai-color-primary);
+  --mg-accent-fg: var(--sai-color-primary-fg);
+  --mg-accent-soft: color-mix(in srgb, var(--mg-accent) 12%, var(--sai-color-bg));
+  /* Success (Photo ready): prefer the theme token, fall back to a fixed green so
+     the badge never renders colourless on themes without --sai-color-success. */
+  --mg-success: var(--sai-color-success, rgb(31 138 77));
+  --mg-success-soft: color-mix(in srgb, var(--mg-success) 14%, var(--sai-color-bg));
+  /* Concrete radii so the studio reads as a rounded card on any theme — some
+     themes map their radius tokens to 0, which would square our corners. */
+  --mg-radius-lg: 16px;
+  --mg-radius-md: 12px;
+  --mg-radius-sm: 9px;
+
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  max-inline-size: var(--page-width, 1200px);
+  margin-inline: auto;
+  padding: var(--sai-size-4);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  color: var(--mg-ink);
+}
+
+.sai-w3kyxs19 *,
+.sai-w3kyxs19 *::before,
+.sai-w3kyxs19 *::after {
+  box-sizing: border-box;
+}
+
+/* The step indicator becomes a span with role="button" when a completed step is
+   clickable. Some themes style [role="button"] (or bare button) with uppercase
+   text, native chrome, or min-heights — neutralize that bleed on the step only,
+   so the progress indicator renders consistently without touching the snippet's
+   other buttons (which carry their own intended styling). */
+.sai-w3kyxs19__step {
+  appearance: none;
+  -webkit-appearance: none;
+  text-transform: none;
+  min-block-size: 0;
+}
+
+/* ── Frame ───────────────────────────────────────────────────────────────── */
+.sai-w3kyxs19__frame {
+  display: flex;
+  flex-direction: column;
+  min-block-size: 32rem;
+  background-color: var(--sai-color-bg);
+}
+
+.sai-w3kyxs19__topbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sai-size-3);
+  padding: var(--sai-size-4) var(--sai-size-5);
+}
+
+.sai-w3kyxs19__back {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  inset-inline-start: var(--sai-size-5);
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: var(--sai-radius-round);
+  background-color: transparent;
+  color: var(--mg-ink-2);
+  cursor: pointer;
+  transition: background-color var(--sai-duration-1) var(--sai-ease-out-1), color var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-w3kyxs19__back--on { display: inline-flex; }
+@media (hover: hover) { .sai-w3kyxs19__back:hover { background-color: var(--mg-surface-2); color: var(--mg-ink); } }
+.sai-w3kyxs19__back:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+
+/* ── Step indicator (StepIndicator atom) — centered cluster ──────────────── */
+.sai-w3kyxs19__steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sai-size-2);
+  flex: 0 1 auto;
+  min-inline-size: 0;
+}
+
+.sai-w3kyxs19__step {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-2);
+  flex: none;
+}
+
+.sai-w3kyxs19__step-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.4375rem;
+  block-size: 1.4375rem;
+  flex: none;
+  border-radius: var(--sai-radius-round);
+  border: 1px solid var(--mg-line);
+  background-color: var(--sai-color-bg);
+  color: var(--mg-ink-3);
+  font-size: 0.75rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  line-height: 1;
+}
+/* Current step = outlined accent ring; completed steps = filled accent. */
+.sai-w3kyxs19__step--active .sai-w3kyxs19__step-badge {
+  background-color: var(--sai-color-bg);
+  border-color: var(--mg-accent);
+  color: var(--mg-accent);
+}
+.sai-w3kyxs19__step--done .sai-w3kyxs19__step-badge {
+  background-color: var(--mg-accent);
+  border-color: var(--mg-accent);
+  color: var(--mg-accent-fg);
+}
+
+.sai-w3kyxs19__step-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--mg-ink-3);
+  white-space: nowrap;
+}
+.sai-w3kyxs19__step--active .sai-w3kyxs19__step-label,
+.sai-w3kyxs19__step--done .sai-w3kyxs19__step-label {
+  color: var(--mg-ink);
+  font-weight: var(--sai-font-body-weight-bold);
+}
+/* Completed steps double as back-nav (role="button"). */
+.sai-w3kyxs19__step--clickable { cursor: pointer; }
+.sai-w3kyxs19__step--clickable:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+  border-radius: var(--mg-radius-sm);
+}
+
+.sai-w3kyxs19__connector {
+  flex: 1 1 auto;
+  min-inline-size: 0.875rem;
+  max-inline-size: 2.5rem;
+  block-size: 2px;
+  border-radius: 2px;
+  background-color: var(--mg-line);
+}
+.sai-w3kyxs19__connector--done { background-color: var(--mg-accent); }
+
+/* ── Body / step host ────────────────────────────────────────────────────── */
+.sai-w3kyxs19__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  padding: var(--sai-size-5);
+}
+
+/* Centered single-column steps (photo, processing, error). */
+.sai-w3kyxs19__center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 auto;
+  inline-size: 100%;
+  max-inline-size: 34rem;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.sai-w3kyxs19__eyebrow {
+  font-size: 0.6875rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mg-accent);
+}
+
+.sai-w3kyxs19__heading {
+  margin: var(--sai-size-2) 0 0;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.75rem;
+  line-height: 1.15;
+}
+
+.sai-w3kyxs19__lede {
+  margin: var(--sai-size-2) 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--mg-ink-2);
+}
+
+/* ── Buttons / actions ───────────────────────────────────────────────────── */
+.sai-w3kyxs19__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sai-size-2);
+  min-block-size: 3rem;
+  padding: var(--sai-size-2) var(--sai-size-5);
+  border: 1px solid transparent;
+  border-radius: var(--mg-radius-md);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  line-height: 1.3;
+  cursor: pointer;
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-w3kyxs19__btn:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+@media (hover: hover) { .sai-w3kyxs19__btn:not([disabled]):hover { opacity: 0.88; } }
+.sai-w3kyxs19__btn[disabled] { cursor: not-allowed; opacity: 0.5; }
+.sai-w3kyxs19__btn[hidden] { display: none; }
+
+.sai-w3kyxs19__btn--primary {
+  background-color: var(--mg-accent);
+  border-color: var(--mg-accent);
+  color: var(--mg-accent-fg);
+}
+.sai-w3kyxs19__btn--ghost {
+  background-color: var(--sai-color-bg);
+  border-color: var(--mg-line);
+  color: var(--mg-ink);
+}
+.sai-w3kyxs19__btn--block { inline-size: 100%; }
+
+/* Continue CTA — compact, right-aligned (full-width on phones). */
+.sai-w3kyxs19__photo-footer {
+  display: flex;
+  justify-content: flex-end;
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-5);
+}
+.sai-w3kyxs19__continue {
+  border: none;
+  border-radius: var(--mg-radius-md);
+  padding: 0.8125rem 1.625rem;
+  background-color: var(--mg-accent);
+  color: var(--mg-accent-fg);
+  font-family: inherit;
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  cursor: pointer;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--mg-accent) 20%, transparent);
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+.sai-w3kyxs19__continue:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+@media (hover: hover) { .sai-w3kyxs19__continue:not([disabled]):hover { opacity: 0.9; } }
+.sai-w3kyxs19__continue[disabled] {
+  background-color: var(--mg-surface-2);
+  color: var(--mg-ink-3);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ── Step 1 — Photo ──────────────────────────────────────────────────────── */
+.sai-w3kyxs19__dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sai-size-3);
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-5);
+  padding: var(--sai-size-6) var(--sai-size-4);
+  border: 1.5px dashed var(--mg-line);
+  border-radius: var(--mg-radius-lg);
+  background-color: var(--mg-surface);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--sai-duration-1) var(--sai-ease-out-1),
+    background-color var(--sai-duration-1) var(--sai-ease-out-1);
+}
+@media (hover: hover) {
+  .sai-w3kyxs19__dropzone:hover {
+    border-color: var(--mg-accent);
+    background-color: color-mix(in srgb, var(--mg-accent) 5%, var(--sai-color-bg));
+  }
+}
+.sai-w3kyxs19__dropzone-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  border-radius: var(--mg-radius-md);
+  background-color: var(--mg-accent);
+  color: var(--mg-accent-fg);
+}
+.sai-w3kyxs19__dropzone-title { font-size: 0.9375rem; font-weight: var(--sai-font-body-weight-bold); }
+.sai-w3kyxs19__dropzone-hint { font-size: 0.8125rem; color: var(--mg-ink-3); }
+
+.sai-w3kyxs19__photo-actions {
+  display: flex;
+  gap: var(--sai-size-3);
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-3);
+}
+.sai-w3kyxs19__photo-actions .sai-w3kyxs19__btn { flex: 1 1 0; min-block-size: 2.75rem; }
+/* "Take a photo" relies on camera capture, which only works on touch devices —
+   on desktop the capture attribute is ignored and the button would just re-open
+   the file picker. Hide it where there's a precise pointer with hover (desktop). */
+@media (hover: hover) and (pointer: fine) {
+  .sai-w3kyxs19__photo-actions { display: none; }
+}
+
+.sai-w3kyxs19__consent {
+  margin-block-start: var(--sai-size-4);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--mg-ink-3);
+}
+
+/* Photo-ready card — bordered two-column (design: hasPhoto state). */
+.sai-w3kyxs19__ready-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-4);
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-5);
+  padding: var(--sai-size-4);
+  border: 1px solid var(--mg-line);
+  border-radius: var(--mg-radius-lg);
+  background-color: var(--sai-color-bg);
+  text-align: start;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--sai-color-fg) 4%, transparent);
+}
+.sai-w3kyxs19__ready-thumb {
+  position: relative;
+  inline-size: 8.5rem;
+  aspect-ratio: 4 / 5;
+  flex: none;
+  border-radius: var(--mg-radius-md);
+  overflow: hidden;
+  background-color: var(--mg-surface);
+}
+.sai-w3kyxs19__ready-thumb img { display: block; inline-size: 100%; block-size: 100%; object-fit: cover; }
+.sai-w3kyxs19__ready-label {
+  position: absolute;
+  inset-block-end: 0.5rem;
+  inset-inline-start: 0.5rem;
+  padding: 0.1875rem 0.4375rem;
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--sai-color-bg) 84%, transparent);
+  color: var(--mg-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.625rem;
+}
+.sai-w3kyxs19__ready-info {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sai-size-2);
+}
+.sai-w3kyxs19__ready-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.3125rem 0.6875rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--mg-success-soft);
+  color: var(--mg-success);
+  font-size: 0.75rem;
+  font-weight: var(--sai-font-body-weight-bold);
+}
+.sai-w3kyxs19__ready-dot {
+  inline-size: 0.4375rem;
+  block-size: 0.4375rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--mg-success);
+}
+.sai-w3kyxs19__ready-title { font-size: 1rem; font-weight: var(--sai-font-body-weight-bold); color: var(--mg-ink); }
+.sai-w3kyxs19__ready-note { margin: 0; font-size: 0.78125rem; line-height: 1.5; color: var(--mg-ink-3); }
+.sai-w3kyxs19__ready-swap {
+  margin-block-start: 0.125rem;
+  padding: 0.5625rem 0.9375rem;
+  border: 1px solid var(--mg-line);
+  border-radius: var(--mg-radius-sm);
+  background-color: var(--sai-color-bg);
+  color: var(--mg-ink);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  cursor: pointer;
+}
+@media (hover: hover) { .sai-w3kyxs19__ready-swap:hover { border-color: var(--mg-accent); color: var(--mg-accent); } }
+.sai-w3kyxs19__ready-swap:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+
+.sai-w3kyxs19__file-input {
+  position: absolute;
+  inline-size: 1px; block-size: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ── Model picker overlay ────────────────────────────────────────────────── */
+/* Detail / model picker — viewport-centred modal with a backdrop (fixed, so it
+   appears where the shopper is looking, not anchored to the tall section top). */
+.sai-w3kyxs19__sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--sai-size-5) var(--sai-size-4);
+  background-color: color-mix(in srgb, var(--sai-color-fg) 45%, transparent);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  overflow-y: auto;
+}
+.sai-w3kyxs19__sheet-card {
+  inline-size: 100%;
+  max-inline-size: 30rem;
+  margin-block: auto;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--sai-color-bg);
+  border-radius: var(--mg-radius-lg);
+  overflow: hidden;
+  box-shadow: 0 24px 64px color-mix(in srgb, var(--sai-color-fg) 30%, transparent);
+  animation: sai-w3kyxs19-pop 0.2s var(--sai-ease-out-1);
+}
+@keyframes sai-w3kyxs19-pop { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.sai-w3kyxs19__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem; block-size: 2rem;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--mg-surface-2);
+  color: var(--mg-ink);
+  cursor: pointer;
+}
+.sai-w3kyxs19__close:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+
+/* ── Result preview zoom (lightbox) ──────────────────────────────────────── */
+/* Reuses the sheet backdrop, but centres a self-sized image instead of a card.
+   The scrim is a near-opaque dark wash (inked from the theme foreground) so the
+   photo reads against it like a standard media lightbox, not a translucent sheet. */
+.sai-w3kyxs19__zoom {
+  align-items: center;
+  padding: var(--sai-size-4);
+  background-color: color-mix(in srgb, var(--sai-color-fg) 92%, transparent);
+}
+.sai-w3kyxs19__zoom-card {
+  position: relative;
+  margin-block: auto;
+  display: flex;
+  background-color: transparent;
+  box-shadow: none;
+  animation: sai-w3kyxs19-pop 0.2s var(--sai-ease-out-1);
+}
+.sai-w3kyxs19__zoom-img {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: 90svh;
+  inline-size: auto;
+  block-size: auto;
+  object-fit: contain;
+  transition: opacity 0.2s var(--sai-ease-out-1);
+}
+/* While the full-size image decodes, hold a spinner and keep the image hidden so
+   the lightbox never flashes an empty frame. */
+.sai-w3kyxs19__zoom-card--loading { min-inline-size: 3rem; min-block-size: 3rem; }
+.sai-w3kyxs19__zoom-card--loading .sai-w3kyxs19__zoom-img { opacity: 0; }
+.sai-w3kyxs19__zoom-spinner {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  transform: translate(-50%, -50%);
+  --sai-spinner-size: 1.75rem;
+  color: var(--sai-color-bg);
+}
+.sai-w3kyxs19__zoom-card:not(.sai-w3kyxs19__zoom-card--loading) .sai-w3kyxs19__zoom-spinner {
+  display: none;
+}
+/* Pinned to the viewport corner (fixed, not anchored to the image) so the close
+   target is always top-right regardless of the photo's aspect ratio. */
+.sai-w3kyxs19__zoom-close {
+  position: fixed;
+  inset-block-start: var(--sai-size-4);
+  inset-inline-end: var(--sai-size-4);
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  background-color: color-mix(in srgb, var(--sai-color-bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--sai-color-fg) 40%, transparent);
+}
+
+/* ── Step 2 — Products ───────────────────────────────────────────────────── */
+.sai-w3kyxs19__catalog {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  gap: var(--sai-size-3);
+}
+.sai-w3kyxs19__cats {
+  display: flex;
+  gap: var(--sai-size-2);
+  overflow-x: auto;
+  padding-block-end: var(--sai-size-1);
+  scrollbar-width: none; /* Firefox — hide the bar, keep the scroll */
+}
+/* Hide the native scrollbar on the horizontally-scrolling chip / thumbnail rows
+   (collection tabs + tray). The content peeks past the edge to signal scroll;
+   the raw bar under a short chip row reads as a layout glitch. WebKit/Blink. */
+.sai-w3kyxs19__cats::-webkit-scrollbar,
+.sai-w3kyxs19__tray-items::-webkit-scrollbar { display: none; }
+.sai-w3kyxs19__cat {
+  flex: none;
+  padding: 0.4375rem 0.875rem;
+  border: 1px solid var(--mg-line);
+  border-radius: var(--sai-radius-round);
+  background-color: var(--sai-color-bg);
+  color: var(--mg-ink-2);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sai-w3kyxs19__cat[aria-pressed='true'] {
+  background-color: var(--mg-ink);
+  border-color: var(--mg-ink);
+  color: var(--sai-color-bg);
+}
+
+.sai-w3kyxs19__count { font-size: 0.75rem; color: var(--mg-ink-3); }
+
+.sai-w3kyxs19__grid {
+  display: grid;
+  /* Column count is merchant-configurable per breakpoint: --mg-cols (desktop,
+     products_per_row) with a --mg-cols-mobile override below. */
+  grid-template-columns: repeat(var(--mg-cols, 4), 1fr);
+  gap: var(--sai-size-3);
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-block-size: 0;
+  padding-block-end: 6rem; /* clearance for the floating tray */
+}
+@media (max-width: 749px) {
+  .sai-w3kyxs19__grid {
+    grid-template-columns: repeat(var(--mg-cols-mobile, 2), 1fr);
+  }
+}
+
+/* Infinite-scroll sentinel + "Show more" fallback. */
+.sai-w3kyxs19__more {
+  display: flex;
+  justify-content: center;
+  padding-block: var(--sai-size-4);
+}
+.sai-w3kyxs19__more-btn {
+  border: 1px solid var(--mg-line);
+  background-color: var(--sai-color-bg);
+  color: var(--mg-ink);
+  border-radius: var(--mg-radius-md);
+  padding: var(--sai-size-2) var(--sai-size-4);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Centered spinner shown at the bottom while the next page loads. */
+.sai-w3kyxs19__loading {
+  display: flex;
+  justify-content: center;
+  padding-block: var(--sai-size-4);
+}
+
+/* Neutral placeholder when a product has no image. */
+.sai-w3kyxs19__noimg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 100%;
+  block-size: 100%;
+  color: var(--mg-ink-3);
+}
+
+/* Product card (ProductCard atom). */
+.sai-w3kyxs19__card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--mg-line-2);
+  border-radius: var(--mg-radius-lg);
+  background-color: var(--sai-color-bg);
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--sai-duration-1) var(--sai-ease-out-1),
+    box-shadow var(--sai-duration-1) var(--sai-ease-out-1);
+}
+@media (hover: hover) {
+  .sai-w3kyxs19__card:hover {
+    border-color: var(--mg-line);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--sai-color-fg) 8%, transparent);
+  }
+}
+.sai-w3kyxs19__card-media {
+  position: relative;
+  inline-size: 100%;
+  aspect-ratio: 1 / 1;
+  background-color: var(--mg-surface);
+}
+.sai-w3kyxs19__card-media img { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; object-fit: cover; }
+.sai-w3kyxs19__card-tag {
+  position: absolute;
+  inset-block-start: var(--sai-size-2);
+  inset-inline-end: var(--sai-size-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--sai-color-bg);
+  color: var(--mg-accent);
+  font-size: 0.625rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--sai-color-fg) 12%, transparent);
+}
+.sai-w3kyxs19__card-tag::before {
+  content: '';
+  inline-size: 0.375rem; block-size: 0.375rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--mg-accent);
+}
+.sai-w3kyxs19__card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  padding: var(--sai-size-3);
+  flex: 1 1 auto; /* fill card height so the CTA can pin to the bottom */
+}
+/* Wrap so a long title takes the full width and the price drops to its own
+   line instead of being crushed into a narrow column beside the nowrap price. */
+.sai-w3kyxs19__card-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: var(--sai-size-1) var(--sai-size-2); }
+/* Clamp to two lines so long product names don't stretch the card and push the
+   price/CTA out of alignment with siblings in the same grid row. */
+.sai-w3kyxs19__card-title {
+  font-size: 0.875rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.sai-w3kyxs19__card-price { font-size: 0.875rem; font-weight: var(--sai-font-body-weight-bold); white-space: nowrap; }
+.sai-w3kyxs19__card-add {
+  inline-size: 100%;
+  margin-block-start: auto; /* pin CTA to the bottom across varying title heights */
+  border: none;
+  border-radius: var(--mg-radius-md);
+  padding: 0.625rem 0.75rem;
+  background-color: var(--mg-accent);
+  color: var(--mg-accent-fg);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  cursor: pointer;
+}
+.sai-w3kyxs19__card-add--added {
+  background-color: color-mix(in srgb, var(--mg-accent) 12%, var(--sai-color-bg));
+  color: var(--mg-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mg-accent) 40%, transparent);
+}
+/* Out of stock */
+.sai-w3kyxs19__card-add[disabled] {
+  background-color: var(--mg-surface-2);
+  color: var(--mg-ink-3);
+  cursor: not-allowed;
+}
+.sai-w3kyxs19__card--oos { cursor: default; }
+.sai-w3kyxs19__card--oos .sai-w3kyxs19__card-media { opacity: 0.5; }
+.sai-w3kyxs19__card-tag--oos { color: var(--mg-ink-2); }
+.sai-w3kyxs19__card-tag--oos::before { background-color: var(--mg-ink-3); }
+/* Add-to-cart busy (loader) state on result rows */
+.sai-w3kyxs19__row-add[disabled] { opacity: 0.6; cursor: wait; }
+
+/* Product detail panel. */
+.sai-w3kyxs19__detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sai-size-3); }
+.sai-w3kyxs19__detail-cat { font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mg-ink-3); }
+.sai-w3kyxs19__detail-title { margin: 0.125rem 0 0; font-family: var(--sai-font-heading); font-weight: var(--sai-font-heading-weight); font-size: 1.25rem; }
+.sai-w3kyxs19__detail-price { margin-block-start: 0.25rem; font-size: 0.9375rem; font-weight: var(--sai-font-body-weight-bold); }
+.sai-w3kyxs19__detail-media {
+  inline-size: 100%;
+  aspect-ratio: 4 / 5;
+  margin-block: var(--sai-size-4);
+  border-radius: var(--mg-radius-md);
+  overflow: hidden;
+  background-color: var(--mg-surface);
+}
+.sai-w3kyxs19__detail-media img { inline-size: 100%; block-size: 100%; object-fit: cover; }
+
+/* Two-pane detail modal: image left, info right (design quick-view). */
+/* Desktop two-pane detail. Cap the height so a long info panel can't grow the
+   modal past the viewport — the whole right info panel (title, price, options,
+   button) scrolls internally against the fixed-height image. */
+.sai-w3kyxs19__detail { position: relative; flex-direction: row; align-items: stretch; max-inline-size: 40rem; max-block-size: 60vh; }
+.sai-w3kyxs19__detail .sai-w3kyxs19__detail-info { min-block-size: 0; overflow-y: auto; }
+.sai-w3kyxs19__detail .sai-w3kyxs19__detail-media {
+  inline-size: 50%;
+  flex: none;
+  align-self: stretch;
+  aspect-ratio: auto;
+  margin: 0;
+  border-radius: 0;
+}
+.sai-w3kyxs19__detail-info {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+  /* No block-end padding: the info (desktop) or the card (mobile bottom sheet)
+     is a scroll container, and browsers clip a scroll container's trailing
+     padding/margin at the scroll end — the add-to-cart button ends up flush with
+     the bottom. The ::after below is a real in-flow box, which is NOT clipped, so
+     it reliably reserves that space (plus the iOS home-indicator inset). */
+  padding: var(--sai-size-5) var(--sai-size-5) 0;
+}
+.sai-w3kyxs19__detail-info::after {
+  content: '';
+  display: block;
+  flex: none;
+  block-size: calc(var(--sai-size-5) + env(safe-area-inset-bottom, 0px));
+}
+.sai-w3kyxs19__detail-info .sai-w3kyxs19__detail-title { margin: 0.125rem 0 0; }
+.sai-w3kyxs19__detail-close {
+  position: absolute;
+  inset-block-start: var(--sai-size-3);
+  inset-inline-end: var(--sai-size-3);
+  z-index: 2;
+}
+.sai-w3kyxs19__detail-add { margin-block-start: auto; }
+.sai-w3kyxs19__swatch-label { font-size: 0.8125rem; color: var(--mg-ink-2); margin-block-end: var(--sai-size-2); }
+.sai-w3kyxs19__swatch-label b { color: var(--mg-ink); font-weight: var(--sai-font-body-weight-bold); }
+.sai-w3kyxs19__swatches { display: flex; gap: var(--sai-size-2); flex-wrap: wrap; }
+.sai-w3kyxs19__swatch {
+  inline-size: 2rem; block-size: 2rem;
+  padding: 0;
+  border: 1px solid var(--mg-line);
+  border-radius: var(--sai-radius-round);
+  cursor: pointer;
+}
+.sai-w3kyxs19__swatch[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--sai-color-bg), 0 0 0 4px var(--mg-accent); }
+.sai-w3kyxs19__swatch[disabled] { cursor: not-allowed; opacity: 0.4; }
+/* Image swatch — shows the colour's product photo (works for prints/patterns). */
+.sai-w3kyxs19__swatch--img {
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+  border-radius: var(--mg-radius-sm);
+  background-size: cover;
+  background-position: center;
+  background-color: var(--mg-surface);
+  border-color: var(--mg-line);
+}
+/* All option groups (Colour, Size, Material…) stacked in the quick-view. */
+.sai-w3kyxs19__options { display: flex; flex-direction: column; gap: var(--sai-size-4); margin-block: var(--sai-size-2); }
+.sai-w3kyxs19__option { display: flex; flex-direction: column; }
+
+/* Tray (TrayBar atom) — floats at the bottom of the catalog. */
+.sai-w3kyxs19__tray {
+  position: sticky;
+  inset-block-end: var(--sai-size-3);
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-3);
+  margin-block-start: var(--sai-size-2);
+  padding: 0.625rem 0.625rem 0.625rem 0.8125rem;
+  border: 1px solid var(--mg-line);
+  border-radius: var(--mg-radius-lg);
+  background-color: var(--sai-color-bg);
+  box-shadow: 0 8px 26px color-mix(in srgb, var(--sai-color-fg) 12%, transparent);
+}
+/* Rendered as a <button> — tapping it returns to the photo step. Reset the
+   native button chrome so it reads as the same photo thumb on any theme. */
+.sai-w3kyxs19__tray-you {
+  position: relative;
+  inline-size: 3rem; block-size: 3rem;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: var(--mg-radius-sm);
+  overflow: hidden;
+  background-color: var(--mg-surface);
+  /* Accent ring marks this as the shopper's own photo, distinct from the
+     neutral product thumbnails beside it. */
+  box-shadow: 0 0 0 2px var(--sai-color-bg), 0 0 0 4px var(--mg-accent);
+  cursor: pointer;
+}
+.sai-w3kyxs19__tray-you:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+.sai-w3kyxs19__tray-you img { inline-size: 100%; block-size: 100%; object-fit: cover; }
+.sai-w3kyxs19__tray-sep { inline-size: 1px; block-size: 2.25rem; flex: none; background-color: var(--mg-line-2); }
+.sai-w3kyxs19__tray-items {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-2);
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow-x: auto;
+  scrollbar-width: none; /* Firefox — bar hidden, scroll preserved (see __cats) */
+}
+.sai-w3kyxs19__tray-empty { font-size: 0.8125rem; color: var(--mg-ink-3); font-weight: 500; white-space: nowrap; }
+.sai-w3kyxs19__tray-item {
+  position: relative;
+  inline-size: 3rem; block-size: 3rem;
+  flex: none;
+  border-radius: var(--mg-radius-sm);
+  overflow: hidden;
+  background-color: var(--mg-surface);
+}
+.sai-w3kyxs19__tray-item img { inline-size: 100%; block-size: 100%; object-fit: cover; }
+.sai-w3kyxs19__tray-remove {
+  position: absolute;
+  inset-block-start: 2px; inset-inline-end: 2px;
+  inline-size: 1rem; block-size: 1rem;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--sai-radius-round);
+  background-color: color-mix(in srgb, var(--sai-color-fg) 74%, transparent);
+  color: var(--sai-color-bg);
+  font-size: 0.75rem; line-height: 1;
+  cursor: pointer;
+}
+.sai-w3kyxs19__tray-cta {
+  flex: none;
+  border: none;
+  border-radius: var(--mg-radius-md);
+  padding: 0.75rem 1.125rem;
+  background-color: var(--mg-accent);
+  color: var(--mg-accent-fg);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sai-w3kyxs19__tray-cta[disabled] {
+  background-color: var(--mg-surface-2);
+  color: var(--mg-ink-3);
+  cursor: not-allowed;
+}
+
+/* ── Step 3 — Result (two-pane) ──────────────────────────────────────────── */
+/* Bounded-height two-pane: the preview fills the left and stays put; on the
+   right the look list scrolls between a fixed header and a footer pinned to the
+   bottom. Capped to the viewport so the footer stays in view. */
+.sai-w3kyxs19__result { display: flex; gap: var(--sai-size-5); block-size: clamp(30rem, 80svh, 52rem); min-block-size: 0; }
+.sai-w3kyxs19__stage {
+  position: relative;
+  flex: 1 1 55%;
+  min-inline-size: 0;
+  border-radius: var(--mg-radius-lg);
+  overflow: hidden;
+  background-color: var(--mg-surface);
+}
+/* contain (not cover) so the whole AI image is visible; the grayish stage
+   surface shows as letterbox rather than cropping head/feet (esp. on mobile). */
+.sai-w3kyxs19__preview { display: block; inline-size: 100%; block-size: 100%; object-fit: contain; }
+.sai-w3kyxs19__stage--zoomable .sai-w3kyxs19__preview { cursor: zoom-in; }
+/* Zoom affordance — top-right of the stage (badge sits top-left, watermark
+   bottom-right), so the three never collide. */
+.sai-w3kyxs19__zoom-hint {
+  position: absolute;
+  inset-block-start: var(--sai-size-3);
+  inset-inline-end: var(--sai-size-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--sai-radius-round);
+  background-color: color-mix(in srgb, var(--sai-color-bg) 82%, transparent);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: var(--mg-ink);
+  cursor: zoom-in;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--sai-color-fg) 18%, transparent);
+}
+.sai-w3kyxs19__zoom-hint:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+.sai-w3kyxs19__badge {
+  position: absolute;
+  inset-block-start: var(--sai-size-3);
+  inset-inline-start: var(--sai-size-3);
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--sai-radius-round);
+  background-color: color-mix(in srgb, var(--sai-color-fg) 50%, transparent);
+  color: var(--sai-color-bg);
+  font-size: 0.625rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  backdrop-filter: blur(6px);
+}
+.sai-w3kyxs19__watermark {
+  position: absolute;
+  inset-block-end: var(--sai-size-3);
+  inset-inline-end: var(--sai-size-3);
+  display: inline-flex;
+  align-items: center;
+  /* Dark Spectrum mark — inks from the theme foreground so it reads on the light
+     stage / letterbox rather than washing out like a white logo did. */
+  color: color-mix(in srgb, var(--sai-color-fg) 72%, transparent);
+  text-decoration: none;
+}
+.sai-w3kyxs19__watermark svg { display: block; block-size: 13px; inline-size: auto; fill: currentColor; }
+
+.sai-w3kyxs19__panel { display: flex; flex-direction: column; flex: 1 1 45%; min-inline-size: 0; min-block-size: 0; }
+.sai-w3kyxs19__panel-head { margin-block-end: var(--sai-size-3); }
+.sai-w3kyxs19__panel-title { margin: 0; font-family: var(--sai-font-heading); font-weight: var(--sai-font-heading-weight); font-size: 1.375rem; }
+.sai-w3kyxs19__panel-sub { margin: 0.25rem 0 0; font-size: 0.8125rem; color: var(--mg-ink-3); }
+/* Only the look list scrolls; the header above and footer below stay put. */
+.sai-w3kyxs19__look { display: flex; flex-direction: column; gap: var(--sai-size-3); overflow-y: auto; flex: 1 1 auto; min-block-size: 0; }
+/* Pinned to the bottom of the panel by the flex layout (the look list takes the
+   slack). */
+.sai-w3kyxs19__result-footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+  margin-block-start: var(--sai-size-3);
+  padding-block-start: var(--sai-size-3);
+  border-block-start: 1px solid var(--mg-line-2);
+}
+
+/* Result row (ResultRow atom). */
+.sai-w3kyxs19__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sai-size-3);
+  align-items: center;
+  padding: var(--sai-size-3);
+  border: 1px solid var(--mg-line-2);
+  border-radius: var(--mg-radius-md);
+}
+.sai-w3kyxs19__row-thumb {
+  inline-size: 3.75rem; block-size: 3.75rem;
+  flex: none;
+  border-radius: var(--mg-radius-sm);
+  overflow: hidden;
+  background-color: var(--mg-surface);
+}
+/* contain on the grayish surface so the product photo isn't cropped. */
+.sai-w3kyxs19__row-thumb img { inline-size: 100%; block-size: 100%; object-fit: contain; }
+.sai-w3kyxs19__row-main { flex: 1 1 auto; min-inline-size: 0; display: flex; flex-direction: column; gap: var(--sai-size-1); }
+.sai-w3kyxs19__row-title { font-size: 0.875rem; font-weight: var(--sai-font-body-weight-bold); }
+.sai-w3kyxs19__row-meta { font-size: 0.71875rem; color: var(--mg-ink-3); }
+.sai-w3kyxs19__row-price { font-size: 0.875rem; font-weight: var(--sai-font-body-weight-bold); white-space: nowrap; }
+.sai-w3kyxs19__sizes { display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap; }
+.sai-w3kyxs19__size {
+  min-inline-size: 2.125rem; block-size: 1.875rem;
+  padding: 0 0.5625rem;
+  border: 1px solid var(--mg-line);
+  border-radius: var(--mg-radius-sm);
+  background-color: var(--sai-color-bg);
+  color: var(--mg-ink-2);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  cursor: pointer;
+}
+.sai-w3kyxs19__size[aria-pressed='true'] { background-color: var(--mg-ink); border-color: var(--mg-ink); color: var(--sai-color-bg); }
+.sai-w3kyxs19__size[disabled] { background-color: var(--mg-surface); color: var(--mg-ink-3); cursor: not-allowed; text-decoration: line-through; }
+/* Add-to-cart is a sibling of the summary: a third column beside it on desktop.
+   On phones it drops to a full-width row of its own (see the media query). */
+.sai-w3kyxs19__row-add {
+  flex: none;
+  align-self: center;
+  border: none;
+  border-radius: var(--mg-radius-sm);
+  padding: 0.5625rem 0.9375rem;
+  background-color: var(--mg-ink);
+  color: var(--sai-color-bg);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sai-w3kyxs19__row-add--added {
+  background-color: var(--mg-success-soft);
+  color: var(--mg-success);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mg-success) 35%, transparent);
+}
+.sai-w3kyxs19__row-edit {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 0.71875rem;
+  color: var(--mg-ink-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+@media (hover: hover) { .sai-w3kyxs19__row-edit:hover { color: var(--mg-ink); } }
+
+.sai-w3kyxs19__total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-block-start: var(--sai-size-3);
+  font-size: 1rem;
+  font-weight: var(--sai-font-body-weight-bold);
+}
+.sai-w3kyxs19__total-label { color: var(--mg-ink-3); font-weight: 500; }
+.sai-w3kyxs19__total-value { font-weight: var(--sai-font-body-weight-bold); font-variant-numeric: tabular-nums; }
+.sai-w3kyxs19__addall { margin-block-start: var(--sai-size-2); }
+.sai-w3kyxs19__result-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sai-size-2); margin-block-start: var(--sai-size-2); }
+.sai-w3kyxs19__disclaimer { margin-block-start: var(--sai-size-3); font-size: 0.71875rem; line-height: 1.5; color: var(--mg-ink-3); }
+
+/* ── Processing ──────────────────────────────────────────────────────────── */
+.sai-w3kyxs19__processing { display: flex; flex-direction: column; align-items: center; gap: var(--sai-size-4); padding: var(--sai-size-7) var(--sai-size-4); }
+.sai-w3kyxs19__spinner {
+  inline-size: 2.5rem; block-size: 2.5rem;
+  border-radius: var(--sai-radius-round);
+  border: 3px solid var(--mg-line);
+  border-block-start-color: var(--mg-accent);
+  animation: sai-w3kyxs19-spin 0.8s linear infinite;
+}
+.sai-w3kyxs19__processing-text { font-size: 0.9375rem; font-weight: var(--sai-font-body-weight-bold); }
+.sai-w3kyxs19__bar { inline-size: 100%; max-inline-size: 18rem; block-size: 6px; border-radius: var(--sai-radius-round); background-color: var(--mg-accent-soft); overflow: hidden; }
+.sai-w3kyxs19__bar .sai-w3kyxs19__bar-fill { display: block; block-size: 100%; inline-size: 0; border-radius: var(--sai-radius-round); background-color: var(--mg-accent); transition: inline-size 0.25s linear; }
+
+@keyframes sai-w3kyxs19-spin { to { transform: rotate(360deg); } }
+
+/* ── Uploading (photo upload in flight) — inline card, replaces the dropzone ─ */
+.sai-w3kyxs19__upload-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-4);
+  inline-size: 100%;
+  margin-block-start: var(--sai-size-5);
+  padding: var(--sai-size-4) var(--sai-size-5);
+  border: 1px solid var(--mg-line);
+  border-radius: var(--mg-radius-lg);
+  background-color: var(--sai-color-bg);
+  text-align: start;
+}
+/* Indeterminate spinning ring (no %, no bar — fetch gives no upload progress). */
+.sai-w3kyxs19__uring { inline-size: 3rem; block-size: 3rem; flex: none; }
+.sai-w3kyxs19__uring svg {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  animation: sai-w3kyxs19-spin 0.85s linear infinite;
+}
+.sai-w3kyxs19__uring-track { stroke: var(--mg-line); }
+.sai-w3kyxs19__uring-arc { stroke: var(--mg-accent); }
+.sai-w3kyxs19__upload-meta { flex: 1 1 auto; min-inline-size: 0; }
+.sai-w3kyxs19__upload-title {
+  font-size: 0.9375rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  color: var(--mg-ink);
+}
+.sai-w3kyxs19__upload-file {
+  margin-block-start: 0.1875rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--mg-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sai-w3kyxs19__upload-cancel {
+  flex: none;
+  align-self: flex-start;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--mg-ink-2);
+  font-family: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+@media (hover: hover) { .sai-w3kyxs19__upload-cancel:hover { color: var(--mg-ink); } }
+.sai-w3kyxs19__upload-cancel:focus-visible { outline: 2px solid var(--sai-color-fg); outline-offset: 2px; }
+
+/* ── Error ───────────────────────────────────────────────────────────────── */
+.sai-w3kyxs19__error { display: flex; flex-direction: column; align-items: center; gap: var(--sai-size-3); padding: var(--sai-size-6) var(--sai-size-4); text-align: center; }
+.sai-w3kyxs19__error-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  inline-size: 2.5rem; block-size: 2.5rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--sai-color-error, color-mix(in srgb, var(--sai-color-fg) 8%, transparent));
+  color: var(--sai-color-error-fg, var(--sai-color-fg));
+  font-weight: var(--sai-font-body-weight-bold);
+}
+.sai-w3kyxs19__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sai-size-2);
+  inline-size: 100%;
+  max-inline-size: 34rem;
+  margin: 0 auto var(--sai-size-4);
+  padding: 0.75rem var(--sai-size-3);
+  border: 1px solid color-mix(in srgb, var(--sai-color-error, var(--mg-ink)) 26%, var(--mg-line));
+  border-radius: var(--mg-radius-md);
+  font-size: 0.875rem;
+  line-height: 1.45;
+  text-align: start;
+  background-color: color-mix(in srgb, var(--sai-color-error, var(--mg-ink)) 7%, var(--sai-color-bg));
+  color: var(--mg-ink);
+}
+.sai-w3kyxs19__notice::before {
+  content: '';
+  flex: none;
+  margin-block-start: 0.3125rem;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border-radius: var(--sai-radius-round);
+  background-color: var(--sai-color-error, color-mix(in srgb, var(--mg-ink) 55%, transparent));
+}
+
+.sai-w3kyxs19[hidden], .sai-w3kyxs19 [hidden] { display: none !important; }
+
+/* ── Responsive — stack the two-pane result on phones ────────────────────── */
+@media (max-width: 48rem) {
+  .sai-w3kyxs19 { padding: var(--sai-size-2); }
+  .sai-w3kyxs19__body { padding: 0; }
+  /* Stacked on phones: drop the fixed height so the page scrolls naturally and
+     the look list flows instead of scrolling inside a box. */
+  .sai-w3kyxs19__result { flex-direction: column; block-size: auto; }
+  /* Square stage on phones — the contained AI image sits in a square gray box. */
+  .sai-w3kyxs19__stage { flex: none; aspect-ratio: 1 / 1; block-size: auto; }
+  .sai-w3kyxs19__look { overflow: visible; flex: none; }
+  .sai-w3kyxs19__result-footer { border-block-start: none; }
+  .sai-w3kyxs19__result-actions { grid-template-columns: 1fr; }
+  .sai-w3kyxs19__continue { inline-size: 100%; }
+  .sai-w3kyxs19__grid { grid-template-columns: repeat(2, 1fr); }
+  /* Photo-ready confirm card: stack the photo above the copy so it reads full
+     width, instead of a cramped thumbnail wedged beside the text at phone widths. */
+  .sai-w3kyxs19__ready-card { flex-direction: column; align-items: stretch; }
+  .sai-w3kyxs19__ready-thumb { inline-size: 100%; aspect-ratio: 4 / 5; max-block-size: 300px; }
+  .sai-w3kyxs19__ready-thumb img { object-fit: contain; }
+  /* Result rows: keep thumb + summary on the first line and drop the add-to-cart
+     button to its own full-width row beneath, rather than a cramped third column. */
+  .sai-w3kyxs19__row-add { flex-basis: 100%; text-align: center; padding-block: var(--sai-size-3); }
+  /* Tray space is tight on phones — drop the empty-state hint; the floating
+     tray still shows the avatar + CTA so the affordance reads on its own. */
+  .sai-w3kyxs19__tray-empty { display: none; }
+  /* No back button on phones — the step indicator carries wayfinding and the
+     control crowds the compact top bar. Override the `--on` show rule too. */
+  .sai-w3kyxs19__back,
+  .sai-w3kyxs19__back--on { display: none; }
+  /* Detail / model modal becomes a bottom sheet on phones. The card is the ONLY
+     scroll container — the overlay must not also scroll, or iOS routes the touch
+     to the (empty) overlay and the card feels stuck. overscroll-behavior keeps
+     the scroll from chaining to the background, which the JS has already locked. */
+  .sai-w3kyxs19__sheet { align-items: flex-end; padding: 0; overflow: hidden; }
+  .sai-w3kyxs19__sheet-card {
+    max-inline-size: none;
+    margin-block: 0;
+    /* Sheet caps below full height so a strip of the dimmed backdrop stays visible
+       above it — the sheet reads as a modal over the studio, and that strip is the
+       tap-to-dismiss target. vh first as the baseline; svh (2022+) refines it to the
+       always-visible area so engines without svh keep a cap instead of `none`. */
+    max-block-size: 80vh;
+    max-block-size: 80svh;
+    /* Only the card scrolls (single scroll container); overflow-x stays clipped so
+       overflow-y: auto doesn't promote overflow-x to a computed `auto` scrollbar. */
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: var(--mg-radius-lg) var(--mg-radius-lg) 0 0;
+    animation: sai-w3kyxs19-sheetup 0.24s var(--sai-ease-out-1);
+  }
+  /* The sheet card carries BOTH .__sheet-card and .__detail. This rule wins the
+     cascade (same specificity, declared later), so the mobile height cap must live
+     here — put it only on .__sheet-card and this rule's `none` clobbers it, the card
+     grows to content height, stops scrolling, and its top is pushed off-screen. */
+  .sai-w3kyxs19__detail { flex-direction: column; max-inline-size: none; max-block-size: 80vh; max-block-size: 80svh; }
+  .sai-w3kyxs19__detail .sai-w3kyxs19__detail-info { overflow: visible; }
+  .sai-w3kyxs19__detail .sai-w3kyxs19__detail-media { inline-size: 100%; aspect-ratio: 4 / 5; }
+}
+@keyframes sai-w3kyxs19-sheetup { from { transform: translateY(100%); } to { transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-w3kyxs19__spinner,
+  .sai-w3kyxs19__uring svg,
+  .sai-w3kyxs19__sheet-card { animation: none; }
+  .sai-w3kyxs19__card, .sai-w3kyxs19__btn, .sai-w3kyxs19__continue, .sai-w3kyxs19__dropzone { transition: none; }
+}
+{% endstylesheet %}
+
+{%- liquid
+  assign heading = props.heading | default: 'See the whole look on you'
+  assign subheading = props.subheading | default: "Add a photo and we'll preview your selected pieces together — styled into one complete look."
+-%}
+
+<sai-w3kyxs19 class="sai-w3kyxs19">
+  {%- comment -%}
+    SSR frame for LCP + graceful no-JS content. The engine replaces __body with the
+    interactive step machine on init; until then the shopper sees the heading + a
+    static photo-step skeleton. The JSON payload below is read once on init.
+  {%- endcomment -%}
+  <div class="sai-w3kyxs19__frame">
+    <div class="sai-w3kyxs19__topbar">
+      <nav class="sai-w3kyxs19__steps" aria-label="Try-on steps">
+        <span class="sai-w3kyxs19__step sai-w3kyxs19__step--active"><span class="sai-w3kyxs19__step-badge">1</span><span class="sai-w3kyxs19__step-label">Photo</span></span>
+        <span class="sai-w3kyxs19__connector"></span>
+        <span class="sai-w3kyxs19__step"><span class="sai-w3kyxs19__step-badge">2</span><span class="sai-w3kyxs19__step-label">Products</span></span>
+        <span class="sai-w3kyxs19__connector"></span>
+        <span class="sai-w3kyxs19__step"><span class="sai-w3kyxs19__step-badge">3</span><span class="sai-w3kyxs19__step-label">Result</span></span>
+      </nav>
+    </div>
+    <div class="sai-w3kyxs19__body" data-mg-host>
+      <div class="sai-w3kyxs19__center">
+        <span class="sai-w3kyxs19__eyebrow">Step 1 — Add your photo</span>
+        <h2 class="sai-w3kyxs19__heading">{{ heading }}</h2>
+        <p class="sai-w3kyxs19__lede">{{ subheading }}</p>
+      </div>
+    </div>
+  </div>
+
+  {%- comment -%}
+    Resolve the merchant-picked collections from the instance metaobject. The
+    metaobject-backed wrapper passes `mo` but not `collections`, so without this
+    the bare `collections` reference below falls through to Shopify's global
+    all-collections drop (the first 4 store collections, ignoring the merchant's
+    pick). The library wrapper instead passes a resolved `collections` and no
+    `mo`, so guarding on `mo` leaves that value untouched. `collections` itself
+    can't be nil-guarded — the global is always truthy — so key off `mo`.
+  {%- endcomment -%}
+  {%- if mo -%}
+    {%- assign collections = mo.collections.value -%}
+  {%- endif -%}
+
+  {%- comment -%}
+    Data block consumed once on init by the snippet JS. Per-value `| json` is
+    mandatory. collections[] are the merchant-picked collections (one tab each,
+    capped at 4); each carries its bounded products[].
+  {%- endcomment -%}
+  <script type="application/json" data-vto-payload>
+{
+  "collections": [
+    {%- assign c_first = true -%}
+    {%- if collections -%}
+      {%- for coll in collections limit: 4 -%}
+        {%- unless c_first -%},{%- endunless -%}
+        {%- assign c_first = false -%}
+        {
+          "id": {{ coll.id | json }},
+          "title": {{ coll.title | json }},
+          "handle": {{ coll.handle | json }},
+          {%- comment -%}
+            Total products in the collection. The SSR `products` array below is
+            bounded — an unpaginated Liquid `for` over collection.products tops out
+            at 50 regardless of the `limit`, so 50 is the most we can seed in HTML.
+            `productCount` lets the engine know more exist and lazy-fetch the rest
+            from /collections/{handle}/products.json as the shopper scrolls. handle
+            must be present for that fetch to work.
+          {%- endcomment -%}
+          "productCount": {{ coll.all_products_count | json }},
+          "products": [
+            {%- assign p_first = true -%}
+            {%- for product in coll.products limit: 50 -%}
+              {%- unless p_first -%},{%- endunless -%}
+              {%- assign p_first = false -%}
+              {
+                "id": {{ product.id | json }},
+                "title": {{ product.title | json }},
+                "handle": {{ product.handle | json }},
+                "url": {{ product.url | json }},
+                "type": {{ product.type | json }},
+                "category": {%- if product.category -%}{{ product.category.name | json }}{%- else -%}null{%- endif -%},
+                "available": {{ product.available | json }},
+                {%- comment -%}
+                  Prices are emitted as integer cents (not money-filtered strings):
+                  the engine formats them client-side via window.Spectrum.money so it
+                  can re-format per selected variant and sum a tray total. moneyFormat
+                  + currency travel in props below.
+                {%- endcomment -%}
+                "price": {%- if product.selected_or_first_available_variant -%}{{ product.selected_or_first_available_variant.price | json }}{%- else -%}null{%- endif -%},
+                "featuredImageUrl": {%- if product.featured_image -%}{{ product.featured_image | image_url: width: 800 | json }}{%- else -%}null{%- endif -%},
+                "options": {{ product.options | json }},
+                "variants": [
+                  {%- assign v_first = true -%}
+                  {%- for v in product.variants -%}
+                    {%- if forloop.index > 50 -%}{%- break -%}{%- endif -%}
+                    {%- unless v_first -%},{%- endunless -%}
+                    {%- assign v_first = false -%}
+                    {
+                      "id": {{ v.id | json }},
+                      "title": {{ v.title | json }},
+                      "options": {{ v.options | json }},
+                      "available": {{ v.available | json }},
+                      "price": {{ v.price | json }},
+                      "imageUrl": {%- if v.image -%}{{ v.image | image_url: width: 800 | json }}{%- else -%}null{%- endif -%}
+                    }
+                  {%- endfor -%}
+                ]
+              }
+            {%- endfor -%}
+          ]
+        }
+      {%- endfor -%}
+    {%- endif -%}
+  ],
+  "props": {
+    "dailyGenerationLimit": {{ props.daily_generation_limit | default: 10 | json }},
+    "productsPerRow": {{ props.products_per_row | default: 4 | json }},
+    "productsPerRowMobile": {{ props.products_per_row_mobile | default: 2 | json }},
+    "headerOffset": {{ props.header_offset | default: 0 | json }},
+    "heading": {{ heading | json }},
+    "subheading": {{ subheading | json }},
+    "consentText": {{ props.consent_text | json }},
+    "disclaimerText": {{ props.disclaimer_text | json }},
+    "showBranding": {%- if props.show_branding == false -%}false{%- else -%}true{%- endif -%},
+    "moneyFormat": {{ shop.money_format | json }},
+    "currency": {{ shop.currency | json }}
+  }
+}
+  </script>
+
+  <script src="{{ 'sai-snippet-w3kyxs19.js' | asset_url }}" async></script>
+</sai-w3kyxs19>
