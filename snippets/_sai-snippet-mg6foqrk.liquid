@@ -43,6 +43,10 @@ sai-mg6foqrk div:empty {
 }
 
 .sai-mg6foqrk {
+  /* Re-base every surface onto the brand cream instead of the theme's white
+     --sai-color-bg. The frame and the derived --mg-surface tokens below all
+     read this token, so overriding it here recolours the whole studio. */
+  --sai-color-bg: #F4F1EA;
   /* Role-colours mapped onto the merchant theme. The studio keeps its look on any
      storefront by deriving its ink/line/accent ramp from --sai-color-fg /
      --sai-color-primary rather than hardcoding a palette. */
