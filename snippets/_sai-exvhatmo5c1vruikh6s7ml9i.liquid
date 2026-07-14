@@ -20,10 +20,10 @@
 {%- endunless -%}
 
 {%- if sai_state == 'draft' -%}
-  {%- assign sai_handle = 'spectrum_snippet_i2m3o6sr_exvhatmo5c1vruikh6s7ml9i_draft' -%}
+  {%- assign sai_handle = 'spectrum_snippet_v4fgmemd_exvhatmo5c1vruikh6s7ml9i_draft' -%}
   {%- assign sai_slot_list = sai_resource.metafields.spectrum.editorial_looks_draft.value -%}
 {%- else -%}
-  {%- assign sai_handle = 'spectrum_snippet_i2m3o6sr_exvhatmo5c1vruikh6s7ml9i_live' -%}
+  {%- assign sai_handle = 'spectrum_snippet_v4fgmemd_exvhatmo5c1vruikh6s7ml9i_live' -%}
   {%- assign sai_slot_list = sai_resource.metafields.spectrum.editorial_looks_live.value -%}
 {%- endif -%}
 
@@ -39,7 +39,7 @@
   {%- endpaginate -%}
 {%- endunless -%}
 {%- unless sai_mo -%}
-  <!-- SAI:WRAPPER:NO_INSTANCE snippetId=i2m3o6sr instanceId=exvhatmo5c1vruikh6s7ml9i -->
+  <!-- SAI:WRAPPER:NO_INSTANCE snippetId=v4fgmemd instanceId=exvhatmo5c1vruikh6s7ml9i -->
 {%- endunless -%}
 
 {%- assign sai_looks_union = '' | split: ',' -%}
@@ -53,7 +53,7 @@
     {%- endif -%}
   {%- endfor -%}
   {%- unless sai_default -%}
-    <!-- SAI:WRAPPER:NO_DEFAULT_VARIANT snippetId=i2m3o6sr instanceId=exvhatmo5c1vruikh6s7ml9i -->
+    <!-- SAI:WRAPPER:NO_DEFAULT_VARIANT snippetId=v4fgmemd instanceId=exvhatmo5c1vruikh6s7ml9i -->
   {%- endunless -%}
 
   {%- assign sai_seen_slot_keys = "|" -%}
@@ -125,7 +125,7 @@
     {
     "v":1,
     "instanceId":"exvhatmo5c1vruikh6s7ml9i",
-    "snippetId":"i2m3o6sr",
+    "snippetId":"v4fgmemd",
     "experienceId":"019f4bb6-d6cb-7b28-a801-507042e0c2b5",
      "resourceType":"{{ sai_resource.object_type | escape }}",
      "resourceId":"{{ sai_resource.id }}",
@@ -140,12 +140,12 @@
       {%- if sai_v.css != blank -%}{{ sai_v.css }}{%- endif -%}
     {%- endfor -%}
     </style>
-    <div data-spectrum-instance-id="exvhatmo5c1vruikh6s7ml9i" data-spectrum-snippet-id="i2m3o6sr" data-spectrum-variant-id="{{ sai_default.variantId }}" data-spectrum-vis="{{ sai_vis }}" data-spectrum-resource-id="{{ sai_resource.id }}" data-spectrum-lq-snippet="mut-exvhatmo5c1vruikh6s7ml9i" data-spectrum-experience="_system-178463768769" data-spectrum-feature-slug="editorial_looks">
+    <div data-spectrum-instance-id="exvhatmo5c1vruikh6s7ml9i" data-spectrum-snippet-id="v4fgmemd" data-spectrum-variant-id="{{ sai_default.variantId }}" data-spectrum-vis="{{ sai_vis }}" data-spectrum-resource-id="{{ sai_resource.id }}" data-spectrum-lq-snippet="mut-exvhatmo5c1vruikh6s7ml9i" data-spectrum-experience="_system-178463768769" data-spectrum-feature-slug="editorial_looks">
       <script type="application/json" data-spectrum-envelope>{{ sai_envelope | replace: '</script>', '<\/script>' }}</script>
-      {% render '_sai-snippet-i2m3o6sr', variant: sai_default, slot: sai_default_slot, slot_payload: sai_default_payload, entry: sai_default_entry, looks_union: sai_looks_union, mo: sai_mo, mutation_handle: 'mut-exvhatmo5c1vruikh6s7ml9i', experience_handle: '_system-178463768769' %}
+      {% render '_sai-snippet-v4fgmemd', variant: sai_default, slot: sai_default_slot, slot_payload: sai_default_payload, entry: sai_default_entry, looks_union: sai_looks_union, mo: sai_mo, mutation_handle: 'mut-exvhatmo5c1vruikh6s7ml9i', experience_handle: '_system-178463768769' %}
     </div>
   {%- elsif sai_default and sai_state == 'draft' -%}
-    <div data-spectrum-instance-id="exvhatmo5c1vruikh6s7ml9i" data-spectrum-snippet-id="i2m3o6sr" data-spectrum-vis="{{ sai_vis }}" data-spectrum-lq-snippet="mut-exvhatmo5c1vruikh6s7ml9i" data-spectrum-experience="_system-178463768769" data-spectrum-feature-slug="editorial_looks">
+    <div data-spectrum-instance-id="exvhatmo5c1vruikh6s7ml9i" data-spectrum-snippet-id="v4fgmemd" data-spectrum-vis="{{ sai_vis }}" data-spectrum-lq-snippet="mut-exvhatmo5c1vruikh6s7ml9i" data-spectrum-experience="_system-178463768769" data-spectrum-feature-slug="editorial_looks">
       <!-- SAI:WRAPPER:EMPTY_DRAFT feature=editorial_looks -->
     </div>
   {%- elsif sai_default and sai_default_slot == nil -%}
@@ -158,7 +158,7 @@
 {%- endif -%}
 {%- unless sai_resource -%}
   {%- if sai_state == 'draft' -%}
-    <div data-spectrum-instance-id="exvhatmo5c1vruikh6s7ml9i" data-spectrum-snippet-id="i2m3o6sr" data-spectrum-vis="{{ sai_vis }}" data-spectrum-lq-snippet="mut-exvhatmo5c1vruikh6s7ml9i" data-spectrum-experience="_system-178463768769" data-spectrum-feature-slug="editorial_looks">
+    <div data-spectrum-instance-id="exvhatmo5c1vruikh6s7ml9i" data-spectrum-snippet-id="v4fgmemd" data-spectrum-vis="{{ sai_vis }}" data-spectrum-lq-snippet="mut-exvhatmo5c1vruikh6s7ml9i" data-spectrum-experience="_system-178463768769" data-spectrum-feature-slug="editorial_looks">
       <!-- SAI:WRAPPER:EMPTY_DRAFT_NO_RESOURCE feature=editorial_looks resourceType=product -->
     </div>
   {%- endif -%}
