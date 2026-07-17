@@ -119,6 +119,36 @@
   --sai-font-heading-weight: var(--font-heading-weight, bold);
 }
 
+/* Full-bleed section breakout. Opt-in per instance: the per-instance wrapper
+   sets data-spectrum-section-width="full" only when the default variant's
+   content requests it, so instances that don't opt in never match this rule
+   and stay byte-identical. The margin recipe pulls the section to the viewport
+   edges from inside any centered constrained ancestor (the common page-width
+   column) — 50% resolves against the ancestor's content box, 50vw against the
+   viewport, so a centered column yields exactly the left/right viewport edges.
+   Backgrounds live on the snippet root (width:100% of this wrapper), so they
+   fill the bleed; content stays a centered column via the snippet's own inner
+   max-width. 100vw includes the scrollbar gutter, so on classic (non-overlay)
+   scrollbars the widened box overhangs by ~scrollbar-width; clipping the
+   section itself would only clip its own content, not the page scroll it
+   induces, so the root guard below clips the page instead. */
+[data-spectrum-instance-id][data-spectrum-section-width="full"] {
+  box-sizing: border-box;
+  inline-size: 100vw;
+  max-inline-size: 100vw;
+  margin-inline: calc(50% - 50vw);
+}
+
+/* Root x-overflow guard for the breakout above. Global selector is deliberate
+   and tightly scoped: :has() limits it to pages that actually contain an
+   active full-bleed instance — every other page is untouched. `clip` (not
+   `hidden`) so the root never becomes a scroll container and sticky/fixed
+   descendants keep working. Engines without :has() skip the rule and degrade
+   to ~scrollbar-width of horizontal overflow — never worse than no guard. */
+html:has([data-spectrum-instance-id][data-spectrum-section-width="full"]) {
+  overflow-x: clip;
+}
+
 /* Shared spinner utility — sized by --sai-spinner-size (default 1em).
    Color via --sai-spinner-color. Respects prefers-reduced-motion. */
 .sai-spinner {
