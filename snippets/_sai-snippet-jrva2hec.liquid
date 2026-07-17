@@ -1,0 +1,448 @@
+{%- comment -%}
+  Announcement Bar - Ticker. Horizontal-scrolling marquee with an unbounded
+  list of slides held in a single JSON-typed prop.
+
+  Wrapper contract (per docs/tech/studio-liquid-snippets.md "Library Snippets"):
+    - variant            : default variant from mo.variants.value.variants
+    - mo                 : spectrum_snippet_instance metaobject drop
+    - mutation_handle    : 'mut-{instanceId}' (consumed by wrapper outer div)
+    - experience_handle  : (consumed by wrapper outer div)
+
+  Positioning is intentionally NOT a snippet concern. The bar renders in
+  normal document flow at full viewport width. The section / template that
+  places the snippet decides whether to wrap it in a sticky / fixed
+  container; the snippet itself only knows how to scroll its slides.
+
+  variant.content fields:
+    - ticker_seconds     number   Seconds for one viewport-width of slide
+                                  content to scroll past. Pixel speed stays
+                                  constant regardless of total slide count.
+    - pause_on_hover     boolean  Pause animation while hover/focus is active.
+    - asset_object_fit   string   'cover' | 'contain' | 'fill' | 'none'
+    - asset_loop         boolean  Maps to <video loop>; no-op for <img>.
+    - slides             array    [{ title_text, asset_url, asset_position,
+                                  background_color, redirect_url }]
+
+  Slide field semantics:
+    - title_text         string   Inline HTML allowed; rendered without
+                                  | escape. Same trust boundary as theme
+                                  settings — merchants can author rich
+                                  text including <strong>/<em>/<a>.
+    - asset_url          string   CDN URL string. Render branches on the
+                                  real file extension (path-stripped of
+                                  query string and hash, last dot-segment):
+                                  mp4 / webm / mov produce <video>;
+                                  everything else produces <img>. Emitted
+                                  through | escape into HTML attributes.
+                                  Slides with empty asset_url AND empty
+                                  title_text are skipped.
+    - asset_position     string   'leading' | 'trailing' | 'background'.
+                                  Drives a CSS modifier on the slide. Falls
+                                  back to 'leading' when missing/invalid.
+    - background_color   string   Hex / CSS colour. Becomes inline
+                                  --sai-slide-bg on the slide wrapper,
+                                  emitted through | escape. Falls back to
+                                  transparent.
+    - redirect_url       string   Optional. The slide is always emitted as
+                                  <a>; href is set only when present
+                                  (element-stability rule). Schemes are
+                                  restricted to http/https/mailto/tel and
+                                  relative URLs — javascript:/data:/etc.
+                                  are dropped to prevent click XSS.
+
+  Seamless loop technique: the inner track contains TWO copies of the slide
+  list. CSS animates the track from translateX(0) to translateX(-50%). At
+  -50% the track has scrolled exactly one copy's width, so Copy 2 sits
+  where Copy 1 started. The keyframe loop snap is invisible. Without two
+  copies, a single sweep would leave an empty trailing edge.
+{%- endcomment -%}
+
+{% stylesheet %}
+/* Announcement Bar - Ticker (jrva2hec) */
+
+/* Announcement Bar - Ticker (jrva2hec) — aggregated into spectrum-snippet.css at install. */
+
+/* ── Host element ──────────────────────────────────────────────────────── */
+
+.sai-jrva2hec {
+  --sai-jrva2hec-slide-height: 2.5rem;
+  --sai-jrva2hec-slide-gap: var(--sai-size-2);
+  --sai-jrva2hec-slide-padding-x: var(--sai-size-4);
+  --sai-jrva2hec-asset-size: 1.5rem;
+  --sai-jrva2hec-duration: 30s;
+
+  display: block;
+  /* Full-bleed: span the viewport regardless of parent .page-width / padding.
+     `100vw` + the `calc(-50vw + 50%)` margin recipe shifts the host to the
+     viewport edges from inside any constrained ancestor. */
+  width: 100vw;
+  margin-inline: calc(50% - 50vw);
+  overflow: hidden;
+  background-color: var(--sai-color-bg);
+  color: var(--sai-color-fg);
+  font-family: var(--sai-font-body);
+}
+
+.sai-jrva2hec *,
+.sai-jrva2hec *::before,
+.sai-jrva2hec *::after {
+  box-sizing: border-box;
+}
+
+/* ── Marquee track ─────────────────────────────────────────────────────── */
+
+.sai-jrva2hec__viewport {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.sai-jrva2hec__track {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: max-content;
+  animation: sai-jrva2hec-marquee var(--sai-jrva2hec-duration) linear infinite;
+  /* Paused until JS computes the duration via setDuration(). The default
+     --sai-jrva2hec-duration is for a viewport-width track; with our SSR
+     multiplier the actual track is wider, so running the animation at the
+     default value would scroll at the wrong (faster) speed and then snap
+     back to the start when JS sets the correct duration. JS flips the
+     host's data-ready attribute once setDuration completes. */
+  animation-play-state: paused;
+  will-change: transform;
+}
+
+.sai-jrva2hec[data-ready="true"] .sai-jrva2hec__track {
+  animation-play-state: running;
+}
+
+/* Slides pack tightly within each copy at their natural width. JS clones
+   slides at mount until the copy is >= viewport-width, so the marquee
+   animation never reveals empty space and slide-to-slide spacing stays
+   consistent regardless of total content length. */
+.sai-jrva2hec__track-copy {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+@keyframes sai-jrva2hec-marquee {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* Pause on hover when host opted in. */
+.sai-jrva2hec__track[data-pause-on-hover="true"]:hover {
+  animation-play-state: paused;
+}
+
+/* Respect user motion preference — render slides statically. */
+@media (prefers-reduced-motion: reduce) {
+  .sai-jrva2hec__track {
+    animation: none;
+    transform: none;
+  }
+}
+
+/* ── Slide ─────────────────────────────────────────────────────────────── */
+
+.sai-jrva2hec__slide {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: var(--sai-jrva2hec-slide-height);
+  min-height: var(--sai-jrva2hec-slide-height);
+  padding-inline: var(--sai-jrva2hec-slide-padding-x);
+  gap: var(--sai-jrva2hec-slide-gap);
+  background-color: var(--sai-slide-bg, transparent);
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.sai-jrva2hec__slide[href]:hover {
+  filter: brightness(1.05);
+}
+
+.sai-jrva2hec__slide[aria-disabled="true"] {
+  cursor: default;
+}
+
+/* Layout — asset before title (default). */
+.sai-jrva2hec__slide--asset-leading {
+  flex-direction: row;
+}
+
+/* Layout — asset after title. */
+.sai-jrva2hec__slide--asset-trailing {
+  flex-direction: row-reverse;
+}
+
+/* Layout — asset is full-bleed background; title overlays. */
+.sai-jrva2hec__slide--asset-background {
+  flex-direction: row;
+  justify-content: center;
+}
+
+.sai-jrva2hec__slide--asset-background .sai-jrva2hec__asset {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Override the 8rem max-width cap from the generic .sai-jrva2hec__asset
+     rule — that cap is for leading/trailing assets, not background. Without
+     this override the asset is clamped to 128px and the slide background
+     shows through on either side. */
+  max-width: none;
+  z-index: 0;
+}
+
+.sai-jrva2hec__slide--asset-background .sai-jrva2hec__title {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Asset ─────────────────────────────────────────────────────────────── */
+
+.sai-jrva2hec__asset {
+  flex-shrink: 0;
+  display: block;
+  height: var(--sai-jrva2hec-asset-size);
+  width: auto;
+  max-width: 8rem;
+  object-position: center;
+  /* Suppress alt-text glyphs blowing up the row when the asset URL 404s.
+     The broken-image icon still appears but at fixed height. */
+  font-size: 0;
+  color: transparent;
+}
+
+.sai-jrva2hec__asset[data-object-fit="cover"] {
+  object-fit: cover;
+}
+.sai-jrva2hec__asset[data-object-fit="contain"] {
+  object-fit: contain;
+}
+.sai-jrva2hec__asset[data-object-fit="fill"] {
+  object-fit: fill;
+}
+.sai-jrva2hec__asset[data-object-fit="none"] {
+  object-fit: none;
+}
+
+/* In background mode, the asset stretches to fill the slide; height auto
+   so width:100% / height:100% above wins. */
+.sai-jrva2hec__slide--asset-background .sai-jrva2hec__asset {
+  height: 100%;
+}
+
+/* ── Title ─────────────────────────────────────────────────────────────── */
+
+.sai-jrva2hec__title {
+  display: inline-block;
+  white-space: nowrap;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  color: inherit;
+}
+
+.sai-jrva2hec__title :is(a, strong, em, b, i, span) {
+  color: inherit;
+}
+{% endstylesheet %}
+
+<script src="{{ 'sai-snippet-jrva2hec.js' | asset_url }}" async></script>
+
+{%- assign content = variant.content -%}
+
+{%- comment -%}── Bar-level defaults (boolean default gotcha: == nil, not | default:) ──{%- endcomment -%}
+{%- if content.pause_on_hover == nil -%}
+  {%- assign pause_on_hover = true -%}
+{%- else -%}
+  {%- assign pause_on_hover = content.pause_on_hover -%}
+{%- endif -%}
+
+{%- if content.asset_loop == nil -%}
+  {%- assign asset_loop = true -%}
+{%- else -%}
+  {%- assign asset_loop = content.asset_loop -%}
+{%- endif -%}
+
+{%- assign ticker_seconds = content.ticker_seconds | default: 30 -%}
+{%- assign asset_object_fit = content.asset_object_fit | default: 'cover' -%}
+{%- if asset_object_fit != 'cover' and asset_object_fit != 'contain' and asset_object_fit != 'fill' and asset_object_fit != 'none' -%}
+  {%- assign asset_object_fit = 'cover' -%}
+{%- endif -%}
+
+{%- comment -%}
+  Render enough slide copies at SSR to fill ~one viewport without depending
+  on JS-driven cloning. fillCopiesToViewport in the JS stays as a safety net
+  for ultra-wide screens or abnormally narrow slide content. Without this,
+  the bar paints with slides clustered on the left and visibly "spreads"
+  out as JS clones run a frame later.
+
+  Target ~8 slides per copy at SSR (~1600–2400 px assuming typical slide
+  widths), which covers desktops up to 1920 px without needing JS. The
+  multiplier is per-instance: 1 source slide → 8 repeats; 8 source slides
+  → 1 repeat. Same target either way.
+{%- endcomment -%}
+{%- assign ssr_target_slides = 8 -%}
+{%- comment -%}
+  Count non-empty slides only. `content.slides.size` would inflate the
+  divisor with skipped (empty asset_url AND empty title_text) slides,
+  shrinking ssr_repeats below what the visible-slide count actually needs.
+{%- endcomment -%}
+{%- assign ssr_source_count = 0 -%}
+{%- if content.slides -%}
+  {%- for _slide_pre in content.slides -%}
+    {%- assign _pre_asset = _slide_pre.asset_url | default: '' -%}
+    {%- assign _pre_title = _slide_pre.title_text | default: '' -%}
+    {%- if _pre_asset != '' or _pre_title != '' -%}
+      {%- assign ssr_source_count = ssr_source_count | plus: 1 -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endif -%}
+{%- if ssr_source_count < 1 -%}
+  {%- assign ssr_source_count = 1 -%}
+{%- endif -%}
+{%- assign ssr_repeats = ssr_target_slides | divided_by: ssr_source_count -%}
+{%- if ssr_repeats < 1 -%}
+  {%- assign ssr_repeats = 1 -%}
+{%- endif -%}
+
+{%- comment -%}── Capture the slide list once; emit twice for the seamless loop. ──{%- endcomment -%}
+{%- assign rendered_count = 0 -%}
+{%- capture slides_html -%}
+  {%- if content.slides -%}
+    {%- for _ssr_repeat in (1..ssr_repeats) -%}
+    {%- for slide in content.slides -%}
+      {%- assign asset_url = slide.asset_url | default: '' -%}
+      {%- assign title_text = slide.title_text | default: '' -%}
+
+      {%- comment -%} Skip empty slides — both fields blank means no content to render. {%- endcomment -%}
+      {%- if asset_url == '' and title_text == '' -%}
+        {%- continue -%}
+      {%- endif -%}
+
+      {%- assign rendered_count = rendered_count | plus: 1 -%}
+
+      {%- comment -%}
+        Asset render branch — extract the real file extension before
+        deciding video vs img. A bare `contains` substring match misroutes
+        URLs whose query string or path incidentally contains '.mp4' /
+        '.webm' / '.mov' (e.g. `cdn.example.com/foo.jpg?ref=video.mp4`).
+      {%- endcomment -%}
+      {%- assign asset_path = asset_url | split: '?' | first | split: '#' | first -%}
+      {%- assign asset_ext = asset_path | split: '.' | last | downcase -%}
+      {%- assign is_video = false -%}
+      {%- if asset_ext == 'mp4' or asset_ext == 'webm' or asset_ext == 'mov' -%}
+        {%- assign is_video = true -%}
+      {%- endif -%}
+
+      {%- assign asset_position = slide.asset_position | default: 'leading' -%}
+      {%- if asset_position != 'leading' and asset_position != 'trailing' and asset_position != 'background' -%}
+        {%- assign asset_position = 'leading' -%}
+      {%- endif -%}
+
+      {%- assign slide_bg = slide.background_color | default: 'transparent' -%}
+      {%- assign slide_index = forloop.index0 -%}
+
+      {%- comment -%}
+        Drop unsafe URL schemes from `redirect_url`. Anything not http(s),
+        mailto, tel, or relative is replaced with a no-op so a malicious or
+        accidental `javascript:` value can't become a click XSS vector.
+
+        Scheme detection only looks at the prefix BEFORE the first `/`,
+        `?`, or `#`. This correctly classifies:
+          /products/widget?utm=site:foo   → no colon in prefix → relative ✓
+          https://example.com/x:y         → 'https:' prefix    → http(s) ✓
+          mailto:hi@example.com           → 'mailto:' prefix   → allowed ✓
+          javascript:alert(1)             → 'javascript:'      → blocked ✓
+        A bare `split: ':' | first` would misread the first case as a scheme.
+      {%- endcomment -%}
+      {%- assign redirect_safe = '' -%}
+      {%- if slide.redirect_url != blank -%}
+        {%- assign redirect_lower = slide.redirect_url | strip | downcase -%}
+        {%- assign redirect_prefix = redirect_lower | split: '/' | first | split: '?' | first | split: '#' | first -%}
+        {%- if redirect_prefix contains ':' -%}
+          {%- assign redirect_scheme = redirect_prefix | split: ':' | first -%}
+          {%- if redirect_scheme == 'http' or redirect_scheme == 'https' or redirect_scheme == 'mailto' or redirect_scheme == 'tel' -%}
+            {%- assign redirect_safe = slide.redirect_url -%}
+          {%- endif -%}
+        {%- else -%}
+          {%- comment -%} No scheme in the prefix → relative URL, allowed. {%- endcomment -%}
+          {%- assign redirect_safe = slide.redirect_url -%}
+        {%- endif -%}
+      {%- endif -%}
+
+      <a class="sai-jrva2hec__slide sai-jrva2hec__slide--asset-{{ asset_position }}"
+         data-slide-index="{{ slide_index }}"
+         {%- if redirect_safe != '' %} href="{{ redirect_safe | escape }}"{% else %} aria-disabled="true"{% endif %}
+         style="--sai-slide-bg: {{ slide_bg | escape }};">
+        {%- if asset_url != '' -%}
+          {%- if is_video -%}
+            {%- comment -%}
+              Videos in an announcement bar are always above the fold and
+              autoplay-muted — preload="auto" tells the browser to fetch
+              the bytes eagerly so playback starts without a visible gap.
+              Default would be "metadata" (just enough for autoplay
+              decision), which leaves the video frame blank for several
+              hundred ms while it streams the remaining bytes.
+            {%- endcomment -%}
+            <video class="sai-jrva2hec__asset"
+                   src="{{ asset_url | escape }}"
+                   autoplay muted playsinline preload="auto"
+                   {%- if asset_loop %} loop{% endif %}
+                   data-object-fit="{{ asset_object_fit }}"></video>
+          {%- else -%}
+            {%- comment -%}
+              The bar is always above the fold, so lazy loading is the
+              wrong default — it'd defer the network request and the
+              slide paints with a broken-image gap until it loads.
+              `loading="eager"` (the HTML default) starts the request
+              immediately and `fetchpriority="high"` puts it ahead of
+              below-the-fold theme images in the priority queue.
+              `decoding="async"` lets the browser decode off the main
+              thread once bytes arrive.
+            {%- endcomment -%}
+            <img class="sai-jrva2hec__asset"
+                 src="{{ asset_url | escape }}"
+                 loading="eager"
+                 fetchpriority="high"
+                 decoding="async"
+                 data-object-fit="{{ asset_object_fit }}"
+                 alt="{{ title_text | strip_html | escape | truncate: 80 }}">
+          {%- endif -%}
+        {%- endif -%}
+        <span class="sai-jrva2hec__title">{{ title_text }}</span>
+      </a>
+    {%- endfor -%}
+    {%- endfor -%}
+  {%- endif -%}
+{%- endcapture -%}
+
+{%- if rendered_count > 0 -%}
+<sai-jrva2hec
+  class="sai-jrva2hec"
+  data-ticker-seconds="{{ ticker_seconds }}"
+  data-pause-on-hover="{% if pause_on_hover %}true{% else %}false{% endif %}"
+  data-rendered-count="{{ rendered_count }}"
+  aria-roledescription="ticker"
+  aria-label="Announcement bar"
+>
+  <div class="sai-jrva2hec__viewport">
+    <div class="sai-jrva2hec__track" data-pause-on-hover="{% if pause_on_hover %}true{% else %}false{% endif %}">
+      <div class="sai-jrva2hec__track-copy" aria-hidden="false">{{ slides_html }}</div>
+      <div class="sai-jrva2hec__track-copy" aria-hidden="true">{{ slides_html }}</div>
+    </div>
+  </div>
+</sai-jrva2hec>
+{%- endif -%}
