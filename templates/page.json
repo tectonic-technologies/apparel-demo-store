@@ -53,9 +53,14 @@
         "padding-block-start": 40,
         "padding-block-end": 80
       }
+    },
+    "sai_section_qxoqpqpr": {
+      "type": "sai-section-qxoqpqpr",
+      "settings": {}
     }
   },
   "order": [
-    "main"
+    "main",
+    "sai_section_qxoqpqpr"
   ]
 }
