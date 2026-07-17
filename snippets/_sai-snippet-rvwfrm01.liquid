@@ -1,0 +1,654 @@
+{%- comment -%}
+  Review Collection Form — Spectrum snippet rvwfrm01.
+
+  Renders an interactive review submission form on the PDP. The Liquid
+  layer SSRs product metadata and a loading skeleton; the JS
+  (sai-snippet-rvwfrm01.js) hydrates the interactive form and handles
+  submission via Spectrum.reviews.submitReview / uploadMedia.
+
+  Render args (from wrapper):
+    variant   – resolved variant; variant.content holds prop values.
+
+  Globals consumed:
+    product   – Shopify product object (handle, title, featured_image).
+{%- endcomment -%}
+
+{% stylesheet %}
+/* Review Collection Form — Spectrum snippet rvwfrm01 */
+
+[data-spectrum-snippet-id="rvwfrm01"] {
+  width: 100%;
+}
+
+.sai-rvwfrm01 {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  margin: 2rem auto;
+  font-family: var(--sai-font-body, inherit);
+  color: var(--sai-color-fg, #1a1a1a);
+}
+
+/* ---- Layout variants ---- */
+
+.sai-rvwfrm01[data-layout="full_page"] {
+  max-width: 600px;
+  padding: 2rem 0;
+}
+
+.sai-rvwfrm01[data-layout="modal"] {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 50%, transparent);
+  margin: 0;
+  max-width: none;
+  overflow-y: auto;
+  padding: 2rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.sai-rvwfrm01--modal-open {
+  display: flex !important;
+}
+
+.sai-rvwfrm01[data-layout="modal"] .sai-rvwfrm01__modal-body {
+  background: var(--sai-color-bg, #fff);
+  border-radius: var(--sai-radius-md, 12px);
+  padding: 2rem;
+  max-width: 520px;
+  width: 100%;
+  position: relative;
+  z-index: 1;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.sai-rvwfrm01__modal-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 2;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--sai-color-fg, #000) 50%, transparent);
+  transition: color 0.15s ease;
+}
+
+.sai-rvwfrm01__modal-close:hover {
+  color: var(--sai-color-fg, #1a1a1a);
+}
+
+.sai-rvwfrm01__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: var(--sai-color-fg, #1a1a1a);
+  color: var(--sai-color-bg, #ffffff);
+  border: none;
+  border-radius: var(--sai-radius-md, 8px);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.sai-rvwfrm01__trigger:hover {
+  opacity: 0.9;
+}
+
+/* ---- Product metadata ---- */
+
+.sai-rvwfrm01__product {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.sai-rvwfrm01__product-image {
+  width: 160px;
+  height: 160px;
+  object-fit: contain;
+  border-radius: var(--sai-radius-md, 12px);
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 10%, transparent);
+}
+
+.sai-rvwfrm01__product-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--sai-color-fg, #1a1a1a);
+  text-align: center;
+}
+
+/* ---- Star rating ---- */
+
+.sai-rvwfrm01__rating {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.sai-rvwfrm01__rating-label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+
+.sai-rvwfrm01__stars {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.sai-rvwfrm01__star {
+  all: unset;
+  display: inline-block;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--sai-rvw-star-empty, #d1d5db);
+  transition: transform 0.15s ease;
+  line-height: 0;
+  box-sizing: border-box;
+}
+
+.sai-rvwfrm01__star:hover {
+  transform: scale(1.15);
+}
+
+.sai-rvwfrm01__star--filled {
+  color: var(--sai-rvw-star-filled, #e0a84b);
+}
+
+.sai-rvwfrm01__rating-error {
+  color: var(--sai-color-error, #ef4444);
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+/* ---- Fields ---- */
+
+.sai-rvwfrm01__field {
+  margin-bottom: 1rem;
+}
+
+.sai-rvwfrm01__label {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 0.375rem;
+}
+
+.sai-rvwfrm01__req {
+  color: var(--sai-color-error, #ef4444);
+  margin-left: 0.125rem;
+}
+
+/* ---- Form fields ---- */
+
+.sai-rvwfrm01 .sai-rvwfrm01__input,
+.sai-rvwfrm01 .sai-rvwfrm01__textarea {
+  width: 100% !important;
+  padding: 0.625rem 0.75rem !important;
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 15%, transparent) !important;
+  border-radius: 6px !important;
+  font: inherit;
+  font-size: 0.875rem !important;
+  color: var(--sai-color-fg, #1a1a1a) !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  outline: none;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+  box-shadow: none !important;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.sai-rvwfrm01 .sai-rvwfrm01__input:focus,
+.sai-rvwfrm01 .sai-rvwfrm01__textarea:focus {
+  border-color: var(--sai-color-primary, #3b82f6) !important;
+  box-shadow: none !important;
+}
+
+.sai-rvwfrm01 .sai-rvwfrm01__input::placeholder,
+.sai-rvwfrm01 .sai-rvwfrm01__textarea::placeholder {
+  color: color-mix(in srgb, var(--sai-color-fg, #000) 35%, transparent);
+}
+
+.sai-rvwfrm01__textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+/* ---- Media upload ---- */
+
+.sai-rvwfrm01__media-upload {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.sai-rvwfrm01__upload-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 64px !important;
+  height: 64px !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: 64px !important;
+  max-height: 64px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 2px dashed color-mix(in srgb, var(--sai-color-fg, #000) 20%, transparent) !important;
+  border-radius: var(--sai-radius-md, 8px) !important;
+  background: transparent !important;
+  cursor: pointer;
+  color: color-mix(in srgb, var(--sai-color-fg, #000) 35%, transparent);
+  transition: border-color 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  line-height: 0;
+}
+
+.sai-rvwfrm01__upload-btn:hover {
+  border-color: var(--sai-color-primary, #3b82f6);
+  color: var(--sai-color-primary, #3b82f6);
+}
+
+.sai-rvwfrm01__file-input {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.sai-rvwfrm01__media-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sai-rvwfrm01__media-item {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+
+.sai-rvwfrm01__media-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--sai-radius-md, 8px);
+  border: 1px solid color-mix(in srgb, var(--sai-color-fg, #000) 12%, transparent);
+}
+
+.sai-rvwfrm01__media-file {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 5%, transparent);
+  border-radius: var(--sai-radius-md, 8px);
+  font-size: 0.625rem;
+  color: color-mix(in srgb, var(--sai-color-fg, #000) 50%, transparent);
+  overflow: hidden;
+  text-align: center;
+  padding: 4px;
+  word-break: break-all;
+}
+
+.sai-rvwfrm01__media-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sai-color-error, #ef4444);
+  color: var(--sai-color-bg, #fff);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 0;
+}
+
+.sai-rvwfrm01__media-remove:hover {
+  opacity: 0.85;
+}
+
+.sai-rvwfrm01__media-hint {
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--sai-color-fg, #000) 35%, transparent);
+  margin: 0.375rem 0 0;
+}
+
+/* ---- Toast ---- */
+
+.sai-rvwfrm01__toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(1rem);
+  background: var(--sai-color-fg, #1a1a1a);
+  color: var(--sai-color-bg, #fff);
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--sai-radius-md, 8px);
+  font-size: 0.875rem;
+  z-index: 10000;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  max-width: 90vw;
+  text-align: center;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--sai-color-fg, #000) 15%, transparent);
+}
+
+.sai-rvwfrm01__toast--visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ---- Field errors ---- */
+
+.sai-rvwfrm01__field-error {
+  color: var(--sai-color-error, #ef4444);
+  font-size: 0.75rem;
+  margin-top: 0.375rem;
+  margin-bottom: -0.25rem;
+}
+
+.sai-rvwfrm01__input--error {
+  border-color: var(--sai-color-error, #ef4444) !important;
+}
+
+/* ---- Error ---- */
+
+.sai-rvwfrm01__error {
+  color: var(--sai-color-error, #ef4444);
+  font-size: 0.8125rem;
+  padding: 0.5rem 0;
+  text-align: center;
+}
+
+/* ---- Submit button ---- */
+
+.sai-rvwfrm01__submit {
+  width: 100%;
+  padding: 0.75rem 1.5rem;
+  background: var(--sai-color-fg, #1a1a1a);
+  color: var(--sai-color-bg, #ffffff);
+  border: none;
+  border-radius: var(--sai-radius-md, 8px);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.sai-rvwfrm01__submit:hover {
+  opacity: 0.9;
+}
+
+.sai-rvwfrm01__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---- Spinner ---- */
+
+.sai-rvwfrm01__spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: sai-rvwfrm01-spin 0.6s linear infinite;
+}
+
+@keyframes sai-rvwfrm01-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Confirmation overlay ---- */
+
+.sai-rvwfrm01__confirmation {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 45%, transparent) !important;
+  z-index: 9999 !important;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: none !important;
+}
+
+.sai-rvwfrm01__confirmation--visible {
+  opacity: 1;
+}
+
+.sai-rvwfrm01__confirmation-card {
+  background: var(--sai-color-bg, #fff) !important;
+  border-radius: var(--sai-radius-md, 12px);
+  padding: 2rem !important;
+  text-align: center;
+  max-width: 360px;
+  width: 90%;
+  margin: auto !important;
+  box-shadow: 0 20px 60px color-mix(in srgb, var(--sai-color-fg, #000) 15%, transparent);
+}
+
+.sai-rvwfrm01__confirmation-icon {
+  display: inline-block;
+  color: var(--sai-color-success, #22c55e);
+  margin-bottom: 1rem;
+}
+
+.sai-rvwfrm01__confirmation-icon svg {
+  animation: sai-rvwfrm01-check 0.4s ease-out 0.1s both;
+}
+
+@keyframes sai-rvwfrm01-check {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.sai-rvwfrm01__confirmation-msg {
+  font-size: 1.125rem;
+  font-weight: 500;
+  margin: 0 0 1.5rem;
+  color: var(--sai-color-fg, #1a1a1a);
+}
+
+.sai-rvwfrm01__confirmation-done {
+  padding: 0.625rem 2rem;
+  background: var(--sai-color-fg, #1a1a1a);
+  color: var(--sai-color-bg, #ffffff);
+  border: none;
+  border-radius: var(--sai-radius-md, 8px);
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.sai-rvwfrm01__confirmation-done:hover {
+  opacity: 0.9;
+}
+
+/* ---- Skeleton ---- */
+
+.sai-rvwfrm01__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sai-rvwfrm01__skeleton-row {
+  height: 44px;
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 5%, transparent);
+  border-radius: var(--sai-radius-md, 8px);
+  animation: sai-rvwfrm01-pulse 1.5s ease-in-out infinite;
+}
+
+.sai-rvwfrm01__skeleton-row--stars {
+  height: 32px;
+  width: 200px;
+  margin: 0 auto;
+}
+
+.sai-rvwfrm01__skeleton-row--short {
+  width: 60%;
+}
+
+.sai-rvwfrm01__skeleton-row--btn {
+  height: 44px;
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 10%, transparent);
+}
+
+@keyframes sai-rvwfrm01-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ---- Reduced motion ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-rvwfrm01__star,
+  .sai-rvwfrm01__toast,
+  .sai-rvwfrm01__confirmation,
+  .sai-rvwfrm01__confirmation-icon svg,
+  .sai-rvwfrm01__spinner,
+  .sai-rvwfrm01__skeleton-row {
+    animation: none;
+    transition: none;
+  }
+}
+{% endstylesheet %}
+
+<script src="{{ 'sai-snippet-rvwfrm01.js' | asset_url }}" async></script>
+
+{%- assign _c = variant.content -%}
+
+{%- if _c.show_product_image == false or _c.show_product_image == 'false' -%}
+  {%- assign show_img = false -%}
+{%- else -%}
+  {%- assign show_img = true -%}
+{%- endif -%}
+
+{%- if _c.show_product_name == false or _c.show_product_name == 'false' -%}
+  {%- assign show_name = false -%}
+{%- else -%}
+  {%- assign show_name = true -%}
+{%- endif -%}
+
+{%- assign layout = _c.form_layout | default: 'inline' -%}
+
+{%- comment -%}
+  Resolve display image: featured_image (images only) → featured_media.preview_image
+  (covers video-only products where featured_image is nil).
+{%- endcomment -%}
+{%- if product.featured_image -%}
+  {%- assign _product_display_img = product.featured_image | image_url: width: 320 -%}
+{%- elsif product.featured_media.preview_image -%}
+  {%- assign _product_display_img = product.featured_media.preview_image | image_url: width: 320 -%}
+{%- else -%}
+  {%- assign _product_display_img = nil -%}
+{%- endif -%}
+
+{%- if layout == 'modal' -%}
+  <button type="button" class="sai-rvwfrm01__trigger" data-rvw-trigger>Write a Review</button>
+{%- endif -%}
+
+<sai-rvwfrm01 class="sai-rvwfrm01" data-layout="{{ layout }}">
+
+  {%- if product -%}
+    {%- if show_img or show_name -%}
+      <div class="sai-rvwfrm01__product" data-product-meta>
+        {%- if show_img and _product_display_img -%}
+          <img
+            src="{{ _product_display_img }}"
+            alt="{{ product.title | escape }}"
+            class="sai-rvwfrm01__product-image"
+            width="160"
+            height="160"
+            loading="lazy" />
+        {%- endif -%}
+        {%- if show_name -%}
+          <p class="sai-rvwfrm01__product-name">{{ product.title }}</p>
+        {%- endif -%}
+      </div>
+    {%- endif -%}
+  {%- endif -%}
+
+  <div class="sai-rvwfrm01__form-container" data-form-root>
+    <div class="sai-rvwfrm01__skeleton">
+      <div class="sai-rvwfrm01__skeleton-row sai-rvwfrm01__skeleton-row--stars"></div>
+      <div class="sai-rvwfrm01__skeleton-row"></div>
+      <div class="sai-rvwfrm01__skeleton-row sai-rvwfrm01__skeleton-row--short"></div>
+      <div class="sai-rvwfrm01__skeleton-row sai-rvwfrm01__skeleton-row--btn"></div>
+    </div>
+  </div>
+
+</sai-rvwfrm01>
+
+<script type="application/json" data-spectrum-snippet-pool>
+{
+  "product": {
+    "handle": {{ product.handle | json }},
+    "title": {{ product.title | json }},
+    "imageUrl": {{ _product_display_img | json }}
+  }
+}
+</script>
