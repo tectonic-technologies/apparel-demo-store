@@ -1,0 +1,1444 @@
+{%- comment -%}
+  Product Reviews — SSR summary + review list from Shopify metafields.
+
+  Reads four metafields for the initial server-rendered view:
+    - product.metafields.spectrum.review_stats     (json) — averageRating, totalCount, ratingHistogram
+    - product.metafields.spectrum.product_reviews   (list.metaobject_reference) — cached review metaobjects
+    - product.metafields.spectrum.rating_aspects    (json) — per-review aspect ratings keyed by metaobject GID
+    - shop.metafields.spectrum.reviews_config       (json) — brand config (voteTypes, aspects, defaultStorefrontSort)
+
+  JS takes over for pagination (page 2+), sort changes, voting, and submission.
+
+  The product_reviews reference list works with both standard product_review
+  and custom spectrum_product_review metaobject types — field keys are identical.
+
+  Trust boundary:
+    Metaobject data is backend-managed. Field values are emitted through
+    Liquid's built-in escaping ({{ ... }}) or | json filter. No additional
+    sanitisation needed.
+{%- endcomment -%}
+
+{% stylesheet %}
+/* ── Product Reviews (okclm1q7) ── */
+
+.sai-okclm1q7 {
+  --sai-okclm1q7-star-color: #f5a623;
+  --sai-okclm1q7-star-empty: color-mix(in srgb, currentColor 25%, transparent);
+  --sai-okclm1q7-bar-fill: #f5a623;
+  --sai-okclm1q7-bar-bg: color-mix(in srgb, currentColor 15%, transparent);
+  --sai-okclm1q7-divider: color-mix(in srgb, currentColor 12%, transparent);
+  --sai-okclm1q7-surface: color-mix(in srgb, currentColor 4%, transparent);
+  --sai-okclm1q7-badge-bg: var(--sai-color-primary);
+  --sai-okclm1q7-badge-fg: var(--sai-color-primary-fg);
+
+  display: block;
+  box-sizing: border-box;
+  inline-size: 100%;
+  max-inline-size: 72rem;
+  margin-inline: auto;
+  margin-block: var(--sai-size-7);
+  padding-inline: var(--sai-size-5);
+  font-family: var(--sai-font-body);
+  font-style: var(--sai-font-body-style);
+  font-weight: var(--sai-font-body-weight);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--sai-color-fg);
+  background: var(--sai-color-bg);
+}
+
+/* ── Theme resets ── */
+
+.sai-okclm1q7 button,
+.sai-okclm1q7 input,
+.sai-okclm1q7 textarea,
+.sai-okclm1q7 select {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.sai-okclm1q7 button::before,
+.sai-okclm1q7 button::after {
+  content: none;
+}
+
+.sai-okclm1q7__container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-5);
+}
+
+/* ── Heading ── */
+
+.sai-okclm1q7__heading {
+  margin: 0;
+  font-family: var(--sai-font-heading);
+  font-style: var(--sai-font-heading-style);
+  font-weight: var(--sai-font-heading-weight);
+  font-size: 1.75rem;
+  line-height: 1.3;
+  color: var(--sai-color-fg);
+}
+
+/* ── Summary Section ── */
+
+.sai-okclm1q7__summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sai-size-6);
+  flex-wrap: wrap;
+}
+
+.sai-okclm1q7__summary-left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+  min-inline-size: 10rem;
+}
+
+.sai-okclm1q7__avg-text {
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+.sai-okclm1q7__avg-stars {
+  display: flex;
+  gap: 2px;
+  color: var(--sai-okclm1q7-star-color);
+}
+
+.sai-okclm1q7__star--empty {
+  color: var(--sai-okclm1q7-star-empty);
+}
+
+.sai-okclm1q7__star--half {
+  color: var(--sai-okclm1q7-star-color);
+}
+
+.sai-okclm1q7__based-on {
+  margin: 0;
+  font-size: 0.875rem;
+  opacity: 0.7;
+}
+
+/* ── Histogram ── */
+
+.sai-okclm1q7__histogram {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+  flex: 1;
+  min-inline-size: 12rem;
+  max-inline-size: 24rem;
+}
+
+.sai-okclm1q7__histogram-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-3);
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--sai-color-fg);
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-okclm1q7__histogram-row:hover {
+  opacity: 0.75;
+}
+
+.sai-okclm1q7__histogram-row:focus-visible {
+  outline: 2px solid var(--sai-color-fg);
+  outline-offset: 2px;
+  border-radius: var(--sai-radius-sm);
+}
+
+.sai-okclm1q7__histogram-stars {
+  display: flex;
+  gap: 1px;
+  flex-shrink: 0;
+  color: var(--sai-okclm1q7-star-color);
+}
+
+.sai-okclm1q7__star-sm--empty {
+  color: var(--sai-okclm1q7-star-empty);
+}
+
+.sai-okclm1q7__histogram-bar {
+  flex: 1;
+  block-size: 0.625rem;
+  border-radius: var(--sai-radius-round);
+  background: var(--sai-okclm1q7-bar-bg);
+  overflow: hidden;
+}
+
+.sai-okclm1q7__histogram-fill {
+  display: block;
+  block-size: 100%;
+  border-radius: inherit;
+  background: var(--sai-okclm1q7-bar-fill);
+  transition: width var(--sai-duration-2) var(--sai-ease-out-1);
+}
+
+.sai-okclm1q7__histogram-count {
+  flex-shrink: 0;
+  min-inline-size: 2.5rem;
+  text-align: end;
+  opacity: 0.6;
+}
+
+/* ── Summary Actions ── */
+
+.sai-okclm1q7__summary-actions {
+  display: flex;
+  align-items: flex-start;
+}
+
+.sai-okclm1q7__write-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sai-size-3) var(--sai-size-6);
+  border: 0;
+  border-radius: var(--sai-radius-md);
+  background: var(--sai-color-primary);
+  background-color: var(--sai-color-primary);
+  color: var(--sai-color-primary-fg);
+  font-family: var(--sai-font-body);
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-okclm1q7__write-btn:hover {
+  opacity: 0.88;
+}
+
+/* ── Controls Bar ── */
+
+.sai-okclm1q7__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--sai-size-4);
+  border-block-start: 1px solid var(--sai-okclm1q7-divider);
+}
+
+.sai-okclm1q7__review-count {
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 1.0625rem;
+}
+
+.sai-okclm1q7__sort {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-2);
+}
+
+.sai-okclm1q7__sort-label {
+  font-size: 0.875rem;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.sai-okclm1q7 .sai-okclm1q7__sort-select {
+  padding: var(--sai-size-2) var(--sai-size-3);
+  border: 1px solid var(--sai-okclm1q7-divider);
+  border-radius: var(--sai-radius-sm);
+  background: var(--sai-color-bg);
+  background-color: var(--sai-color-bg);
+  font-family: var(--sai-font-body);
+  font-size: 0.875rem;
+  color: var(--sai-color-fg);
+  cursor: pointer;
+}
+
+/* ── Review List ── */
+
+.sai-okclm1q7__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.sai-okclm1q7__empty {
+  padding: var(--sai-size-7) 0;
+  text-align: center;
+  opacity: 0.6;
+  font-size: 1.0625rem;
+}
+
+/* ── Minimal empty state (no reviews): centered prompt + CTA ── */
+
+.sai-okclm1q7__empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sai-size-4);
+  padding-block: var(--sai-size-7);
+  text-align: center;
+}
+
+.sai-okclm1q7__empty-state .sai-okclm1q7__empty {
+  padding: 0;
+}
+
+.sai-okclm1q7__review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  padding-block: var(--sai-size-5);
+  border-block-end: 1px solid var(--sai-okclm1q7-divider);
+}
+
+.sai-okclm1q7__review:first-child {
+  border-block-start: 1px solid var(--sai-okclm1q7-divider);
+}
+
+.sai-okclm1q7__review:last-child {
+  border-block-end: 0;
+}
+
+@media (min-width: 48rem) {
+  .sai-okclm1q7__review {
+    flex-direction: row;
+    gap: var(--sai-size-6);
+  }
+}
+
+/* ── Review Aside (author column) ── */
+
+.sai-okclm1q7__review-aside {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sai-size-2);
+}
+
+@media (min-width: 48rem) {
+  .sai-okclm1q7__review-aside {
+    flex: 0 0 10rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sai-size-1);
+  }
+}
+
+/* ── Review Main (content column) ── */
+
+.sai-okclm1q7__review-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  flex: 1;
+  min-inline-size: 0;
+}
+
+.sai-okclm1q7__review-stars {
+  display: flex;
+  gap: 1px;
+  color: var(--sai-okclm1q7-star-color);
+}
+
+.sai-okclm1q7__review-date {
+  font-size: 0.8125rem;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.sai-okclm1q7__review-author {
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 0.9375rem;
+}
+
+.sai-okclm1q7__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+}
+
+.sai-okclm1q7__badge svg {
+  inline-size: 1em;
+  block-size: 1em;
+}
+
+.sai-okclm1q7__badge--verified {
+  color: var(--sai-okclm1q7-badge-bg);
+}
+
+.sai-okclm1q7__review-title {
+  margin: 0;
+  font-family: var(--sai-font-body);
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.sai-okclm1q7__review-body {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  opacity: 0.85;
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.sai-okclm1q7__review-body--expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+.sai-okclm1q7 .sai-okclm1q7__read-more {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: var(--sai-font-body-weight-bold);
+  color: var(--sai-color-primary);
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.sai-okclm1q7__read-more:hover {
+  opacity: 0.75;
+}
+
+/* ── Merchant Reply ── */
+
+.sai-okclm1q7__reply {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+  margin-block-start: var(--sai-size-2);
+  padding: var(--sai-size-4);
+  background: var(--sai-okclm1q7-surface);
+  border-radius: var(--sai-radius-md);
+}
+
+.sai-okclm1q7__reply-label {
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+
+.sai-okclm1q7__reply-date {
+  font-size: 0.8125rem;
+  opacity: 0.5;
+}
+
+.sai-okclm1q7__reply-body {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  opacity: 0.85;
+  white-space: pre-line;
+}
+
+/* ── Aggregate Media Gallery ── */
+
+.sai-okclm1q7__gallery {
+  position: relative;
+  display: flex;
+  gap: var(--sai-size-2);
+  overflow-x: auto;
+  padding-block: var(--sai-size-3);
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 2rem,
+    black calc(100% - 3rem),
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 2rem,
+    black calc(100% - 3rem),
+    transparent
+  );
+}
+
+.sai-okclm1q7__gallery::-webkit-scrollbar {
+  display: none;
+}
+
+.sai-okclm1q7 .sai-okclm1q7__gallery-thumb {
+  display: inline-flex;
+  flex-shrink: 0;
+  inline-size: 4.5rem;
+  block-size: 4.5rem;
+  border: 1px solid var(--sai-okclm1q7-divider);
+  border-radius: var(--sai-radius-sm);
+  overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+}
+
+.sai-okclm1q7__gallery-thumb img,
+.sai-okclm1q7__gallery-thumb video {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.sai-okclm1q7__gallery-thumb--video {
+  position: relative;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Review Media ── */
+
+.sai-okclm1q7__media {
+  display: flex;
+  gap: var(--sai-size-2);
+  flex-wrap: wrap;
+}
+
+.sai-okclm1q7 .sai-okclm1q7__media-thumb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 4rem;
+  block-size: 4rem;
+  border: 1px solid var(--sai-okclm1q7-divider);
+  border-radius: var(--sai-radius-sm);
+  background: var(--sai-okclm1q7-surface);
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.sai-okclm1q7__media-thumb img,
+.sai-okclm1q7__media-thumb video {
+  inline-size: 100%;
+  block-size: 100%;
+  object-fit: cover;
+}
+
+.sai-okclm1q7__media-thumb--video .sai-okclm1q7__media-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 25%, transparent);
+  pointer-events: none;
+}
+
+.sai-okclm1q7__media-play svg {
+  opacity: 0.9;
+  filter: drop-shadow(0 1px 2px color-mix(in srgb, var(--sai-color-fg, #000) 40%, transparent));
+  color: var(--sai-color-bg, #fff);
+}
+
+/* ── Media Lightbox ── */
+
+.sai-okclm1q7__lightbox {
+  position: fixed;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  max-width: 100vw;
+  max-height: 100vh;
+  width: 100vw;
+  height: 100vh;
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 85%, transparent);
+}
+
+.sai-okclm1q7__lightbox[open] {
+  display: flex;
+}
+
+.sai-okclm1q7__lightbox::backdrop {
+  background: transparent;
+}
+
+.sai-okclm1q7__lightbox-panel {
+  opacity: 0;
+  transform: scale(0.95);
+  transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+}
+
+.sai-okclm1q7__lightbox[open] .sai-okclm1q7__lightbox-panel {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.sai-okclm1q7__lightbox--closing .sai-okclm1q7__lightbox-panel {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.sai-okclm1q7__lightbox-panel {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  width: min(90vw, 56rem);
+  max-height: 85vh;
+  border-radius: var(--sai-radius-md);
+  overflow: hidden;
+  background: var(--sai-color-bg, #fff);
+}
+
+.sai-okclm1q7__lightbox-media-side {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 1 55%;
+  min-height: 20rem;
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 4%, transparent);
+}
+
+.sai-okclm1q7__lightbox-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.sai-okclm1q7__lightbox-media {
+  max-width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+}
+
+.sai-okclm1q7__lightbox-review-side {
+  flex: 0 0 45%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  padding: var(--sai-size-6);
+  overflow-y: auto;
+  color: var(--sai-color-fg, #000);
+}
+
+.sai-okclm1q7__lightbox-review-side[hidden] {
+  display: none;
+}
+
+.sai-okclm1q7__lightbox-review-stars {
+  display: flex;
+  gap: 1px;
+  color: var(--sai-okclm1q7-star-color);
+}
+
+.sai-okclm1q7__lightbox-review-date {
+  font-size: 0.8125rem;
+  opacity: 0.6;
+}
+
+.sai-okclm1q7__lightbox-review-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-1);
+  font-size: 0.875rem;
+}
+
+.sai-okclm1q7__lightbox-review-title {
+  margin: 0;
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.sai-okclm1q7__lightbox-review-body {
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  opacity: 0.85;
+}
+
+.sai-okclm1q7 .sai-okclm1q7__lightbox-close {
+  position: absolute;
+  top: var(--sai-size-3);
+  right: var(--sai-size-3);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  border: 0;
+  border-radius: var(--sai-radius-round);
+  background: color-mix(in srgb, var(--sai-color-fg, #000) 8%, transparent);
+  color: var(--sai-color-fg, #000);
+  cursor: pointer;
+}
+
+.sai-okclm1q7 .sai-okclm1q7__lightbox-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  border: 0;
+  border-radius: var(--sai-radius-round);
+  background: color-mix(in srgb, var(--sai-color-bg, #fff) 70%, transparent);
+  color: var(--sai-color-fg, #000);
+  cursor: pointer;
+}
+
+.sai-okclm1q7__lightbox-nav--prev {
+  left: var(--sai-size-3);
+}
+.sai-okclm1q7__lightbox-nav--next {
+  right: var(--sai-size-3);
+}
+
+.sai-okclm1q7__lightbox-nav[hidden] {
+  display: none;
+}
+
+@media (max-width: 47.99rem) {
+  .sai-okclm1q7__lightbox-panel {
+    flex-direction: column;
+    width: min(95vw, 28rem);
+    max-height: 90vh;
+  }
+
+  .sai-okclm1q7__lightbox-media-side {
+    min-height: 14rem;
+    max-height: 50vh;
+  }
+
+  .sai-okclm1q7__lightbox-review-side {
+    flex: none;
+    padding: var(--sai-size-4);
+  }
+}
+
+/* ── Voting ── */
+
+.sai-okclm1q7__votes {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sai-size-3);
+  margin-block-start: var(--sai-size-1);
+}
+
+.sai-okclm1q7__votes-label {
+  font-size: 0.8125rem;
+  opacity: 0.6;
+}
+
+.sai-okclm1q7 .sai-okclm1q7__vote-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sai-size-1);
+  padding: var(--sai-size-1) var(--sai-size-3);
+  border: 1px solid var(--sai-okclm1q7-divider);
+  border-radius: var(--sai-radius-sm);
+  background: transparent;
+  background-color: transparent;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  color: var(--sai-color-fg);
+  cursor: pointer;
+  transition: border-color var(--sai-duration-1) var(--sai-ease-out-1), background
+    var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-okclm1q7__vote-btn:hover {
+  background: var(--sai-okclm1q7-surface);
+  background-color: var(--sai-okclm1q7-surface);
+}
+
+.sai-okclm1q7__vote-btn--active {
+  border-color: var(--sai-color-fg);
+  font-weight: var(--sai-font-body-weight-bold);
+}
+
+.sai-okclm1q7__vote-divider {
+  opacity: 0.3;
+  margin-inline: var(--sai-size-1);
+}
+
+.sai-okclm1q7__vote-count {
+  min-inline-size: 1ch;
+}
+
+/* ── Medium thumbnail size modifier ── */
+
+.sai-okclm1q7--thumb-md .sai-okclm1q7__media-thumb {
+  inline-size: 4.5rem;
+  block-size: 4.5rem;
+}
+
+/* ── Pagination ── */
+
+.sai-okclm1q7__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sai-size-4);
+  padding-block: var(--sai-size-5);
+}
+
+.sai-okclm1q7 .sai-okclm1q7__page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  border: 1px solid var(--sai-okclm1q7-divider);
+  border-radius: var(--sai-radius-sm);
+  background: transparent;
+  background-color: transparent;
+  color: var(--sai-color-fg);
+  cursor: pointer;
+  transition: background var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-okclm1q7__page-btn:hover:not([disabled]) {
+  background: var(--sai-okclm1q7-surface);
+  background-color: var(--sai-okclm1q7-surface);
+}
+
+.sai-okclm1q7__page-btn[disabled] {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.sai-okclm1q7__page-info {
+  font-size: 0.875rem;
+  opacity: 0.7;
+}
+
+/* ── Hidden state — override Dawn/theme CSS that strips [hidden] ── */
+
+.sai-okclm1q7__pagination[hidden] {
+  display: none !important;
+}
+
+.sai-okclm1q7__load-more {
+  display: flex;
+  justify-content: center;
+  padding-block: var(--sai-size-5);
+}
+
+.sai-okclm1q7__load-more[hidden] {
+  display: none !important;
+}
+
+.sai-okclm1q7 .sai-okclm1q7__load-more-btn {
+  padding: var(--sai-size-3) var(--sai-size-6);
+  border: 1px solid var(--sai-okclm1q7-divider);
+  border-radius: var(--sai-radius-md);
+  background: transparent;
+  font-family: var(--sai-font-body);
+  font-weight: var(--sai-font-body-weight-bold);
+  font-size: 0.9375rem;
+  color: inherit;
+  cursor: pointer;
+  transition: opacity var(--sai-duration-1) var(--sai-ease-out-1);
+}
+
+.sai-okclm1q7__load-more-btn:hover {
+  opacity: 0.75;
+}
+
+.sai-okclm1q7__scroll-sentinel {
+  min-block-size: 1px;
+}
+
+.sai-okclm1q7__scroll-sentinel > .sai-okclm1q7__shimmer {
+  padding-block: 0;
+  animation: sai-okclm1q7-fade-in var(--sai-duration-3) var(--sai-ease-out-1) both;
+}
+
+.sai-okclm1q7__scroll-sentinel .sai-okclm1q7__shimmer-card {
+  border-block-start: 1px solid var(--sai-okclm1q7-divider);
+  border-block-end: 0;
+}
+
+.sai-okclm1q7__scroll-sentinel .sai-okclm1q7__shimmer-aside {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 47.999rem) {
+  .sai-okclm1q7__scroll-sentinel .sai-okclm1q7__shimmer-aside {
+    display: none;
+  }
+}
+
+@keyframes sai-okclm1q7-fade-in {
+  from { opacity: 0; }
+}
+
+/* ── Loading Shimmer ── */
+
+.sai-okclm1q7__shimmer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-5);
+  padding-block: var(--sai-size-5);
+}
+
+.sai-okclm1q7__shimmer-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  padding-block: var(--sai-size-5);
+  border-block-end: 1px solid var(--sai-okclm1q7-divider);
+}
+
+@media (min-width: 48rem) {
+  .sai-okclm1q7__shimmer-card {
+    flex-direction: row;
+    gap: var(--sai-size-6);
+  }
+}
+
+.sai-okclm1q7__shimmer-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-2);
+  flex: 0 0 10rem;
+}
+
+.sai-okclm1q7__shimmer-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sai-size-3);
+  flex: 1;
+}
+
+.sai-okclm1q7__shimmer-line,
+.sai-okclm1q7__shimmer-line:empty {
+  display: block;
+  block-size: 0.875rem;
+  min-block-size: 0.875rem;
+  border-radius: var(--sai-radius-sm);
+  background: var(--sai-okclm1q7-bar-bg);
+  animation: sai-okclm1q7-shimmer 1.2s ease-in-out infinite;
+}
+
+.sai-okclm1q7__shimmer-line--stars {
+  inline-size: 5rem;
+}
+.sai-okclm1q7__shimmer-line--tiny {
+  inline-size: 4rem;
+}
+.sai-okclm1q7__shimmer-line--short {
+  inline-size: 8rem;
+}
+.sai-okclm1q7__shimmer-line--medium {
+  inline-size: 40%;
+}
+.sai-okclm1q7__shimmer-line--long {
+  inline-size: 80%;
+}
+
+@keyframes sai-okclm1q7-shimmer {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ── Active filter indicator ── */
+
+.sai-okclm1q7__active-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--sai-size-3);
+  padding: var(--sai-size-3) var(--sai-size-4);
+  background: var(--sai-okclm1q7-surface);
+  border-radius: var(--sai-radius-sm);
+  font-size: 0.875rem;
+}
+
+.sai-okclm1q7 .sai-okclm1q7__clear-filter {
+  padding: var(--sai-size-1) var(--sai-size-2);
+  border: 1px solid var(--sai-okclm1q7-divider);
+  border-radius: var(--sai-radius-sm);
+  background: transparent;
+  background-color: transparent;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  color: var(--sai-color-fg);
+  cursor: pointer;
+}
+
+/* ── Reduced Motion ── */
+
+@media (prefers-reduced-motion: reduce) {
+  .sai-okclm1q7__histogram-fill,
+  .sai-okclm1q7__histogram-row,
+  .sai-okclm1q7__write-btn,
+  .sai-okclm1q7__vote-btn,
+  .sai-okclm1q7__page-btn {
+    transition: none;
+  }
+  .sai-okclm1q7__shimmer-line {
+    animation: none;
+  }
+}
+{% endstylesheet %}
+
+{%- assign stats_raw     = product.metafields.spectrum.review_stats.value -%}
+{%- assign aspects_raw   = product.metafields.spectrum.rating_aspects.value -%}
+{%- assign config_raw    = shop.metafields.spectrum.reviews_config.value -%}
+
+{%- comment -%} ── Resolve props from variant.content with defaults ── {%- endcomment -%}
+{%- assign _c = variant.content -%}
+{%- if _c.heading == nil or _c.heading == blank -%}{%- assign heading = 'Customer Reviews' -%}{%- else -%}{%- assign heading = _c.heading -%}{%- endif -%}
+{%- if _c.reviews_per_page == nil -%}{%- assign per_page = 10 -%}{%- else -%}{%- assign per_page = _c.reviews_per_page -%}{%- endif -%}
+{%- if _c.write_review_label == nil or _c.write_review_label == blank -%}{%- assign write_label = 'Write A Review' -%}{%- else -%}{%- assign write_label = _c.write_review_label -%}{%- endif -%}
+{%- if _c.write_review_url == nil or _c.write_review_url == blank -%}{%- assign write_url_base = '/#write-review' -%}{%- else -%}{%- assign write_url_base = _c.write_review_url -%}{%- endif -%}
+{%- if write_url_base contains '?' -%}
+  {%- assign write_url = write_url_base | append: '&product=' | append: product.handle -%}
+{%- else -%}
+  {%- assign write_url = write_url_base | append: '?product=' | append: product.handle -%}
+{%- endif -%}
+{%- if _c.empty_state_text == nil or _c.empty_state_text == blank -%}{%- assign empty_text = 'No reviews yet. Be the first to share your experience!' -%}{%- else -%}{%- assign empty_text = _c.empty_state_text -%}{%- endif -%}
+{%- if _c.pagination_type == nil or _c.pagination_type == blank -%}{%- assign pag_type = 'numbered' -%}{%- else -%}{%- assign pag_type = _c.pagination_type -%}{%- endif -%}
+{%- if _c.default_sort == nil or _c.default_sort == blank -%}{%- assign default_sort = 'newest' -%}{%- else -%}{%- assign default_sort = _c.default_sort -%}{%- endif -%}
+{%- if _c.show_histogram == nil -%}{%- assign show_hist = true -%}{%- else -%}{%- assign show_hist = _c.show_histogram -%}{%- endif -%}
+{%- if _c.show_media == nil -%}{%- assign show_media = true -%}{%- else -%}{%- assign show_media = _c.show_media -%}{%- endif -%}
+{%- if _c.show_verified_badge == nil -%}{%- assign show_badge = true -%}{%- else -%}{%- assign show_badge = _c.show_verified_badge -%}{%- endif -%}
+{%- if _c.show_review_count == nil -%}{%- assign show_count = true -%}{%- else -%}{%- assign show_count = _c.show_review_count -%}{%- endif -%}
+{%- if _c.show_voting == nil -%}{%- assign show_voting = true -%}{%- else -%}{%- assign show_voting = _c.show_voting -%}{%- endif -%}
+{%- if _c.date_format == nil or _c.date_format == blank -%}{%- assign date_fmt = 'absolute' -%}{%- else -%}{%- assign date_fmt = _c.date_format -%}{%- endif -%}
+{%- if _c.helpful_style == nil or _c.helpful_style == blank -%}{%- assign help_style = 'text_icon' -%}{%- else -%}{%- assign help_style = _c.helpful_style -%}{%- endif -%}
+{%- if _c.thumbnail_size == nil or _c.thumbnail_size == blank -%}{%- assign thumb_size = 'small' -%}{%- else -%}{%- assign thumb_size = _c.thumbnail_size -%}{%- endif -%}
+{%- if _c.star_color_filled == nil or _c.star_color_filled == blank -%}{%- assign star_filled = '#f5a623' -%}{%- else -%}{%- assign star_filled = _c.star_color_filled -%}{%- endif -%}
+{%- if _c.star_color_empty == nil or _c.star_color_empty == blank -%}{%- assign star_empty = '#e8e8e8' -%}{%- else -%}{%- assign star_empty = _c.star_color_empty -%}{%- endif -%}
+{%- if _c.bar_color == nil or _c.bar_color == blank -%}{%- assign bar_color = '#f5a623' -%}{%- else -%}{%- assign bar_color = _c.bar_color -%}{%- endif -%}
+{%- if _c.bar_bg_color == nil or _c.bar_bg_color == blank -%}{%- assign bar_bg = '#e8e8e8' -%}{%- else -%}{%- assign bar_bg = _c.bar_bg_color -%}{%- endif -%}
+{%- if _c.reply_label == nil or _c.reply_label == blank -%}{%- assign reply_label = shop.name | append: ' Reply' -%}{%- else -%}{%- assign reply_label = _c.reply_label -%}{%- endif -%}
+{%- if _c.gallery_limit == nil -%}{%- assign gallery_limit = 20 -%}{%- else -%}{%- assign gallery_limit = _c.gallery_limit -%}{%- endif -%}
+
+<script src="{{ 'sai-snippet-okclm1q7.js' | asset_url }}" async></script>
+{%- assign reviews_ref   = product.metafields.spectrum.product_reviews.value -%}
+{%- assign gallery_raw   = product.metafields.spectrum.review_image_gallery.value -%}
+
+{%- if stats_raw -%}
+  {%- assign avg_rating    = stats_raw.averageRating | times: 1.0 -%}
+  {%- assign total_count   = stats_raw.totalCount | times: 1 -%}
+  {%- assign histogram     = stats_raw.ratingHistogram -%}
+{%- else -%}
+  {%- assign avg_rating    = 0 -%}
+  {%- assign total_count   = 0 -%}
+{%- endif -%}
+
+{%- comment -%}
+  Empty-state display mode (only matters when total_count == 0):
+    minimal — just the empty text + Write A Review button (default)
+    full    — heading + rating summary + zeroed histogram + Write A Review
+              + empty text. No count/sort bar (nothing to sort).
+{%- endcomment -%}
+{%- if _c.empty_state_display == nil or _c.empty_state_display == blank -%}{%- assign empty_mode = 'minimal' -%}{%- else -%}{%- assign empty_mode = _c.empty_state_display -%}{%- endif -%}
+{%- assign is_minimal_empty = false -%}
+{%- if total_count == 0 and empty_mode == 'minimal' -%}{%- assign is_minimal_empty = true -%}{%- endif -%}
+
+<sai-okclm1q7
+  class="sai-okclm1q7{% if thumb_size == 'medium' %} sai-okclm1q7--thumb-md{% endif %}"
+  data-product-handle="{{ product.handle }}"
+  data-product-id="{{ product.id }}"
+  data-per-page="{{ per_page }}"
+  data-total-count="{{ total_count }}"
+  data-avg-rating="{{ avg_rating }}"
+  data-date-format="{{ date_fmt }}"
+  data-helpful-style="{{ help_style }}"
+  data-pagination-type="{{ pag_type }}"
+  data-show-media="{{ show_media }}"
+  data-show-badge="{{ show_badge }}"
+  data-default-sort="{{ default_sort }}"
+  data-show-voting="{{ show_voting }}"
+  data-reply-label="{{ reply_label }}"
+  data-empty-text="{{ empty_text }}"
+  style="{%- if star_filled != '#f5a623' -%}--sai-okclm1q7-star-color: {{ star_filled }};{%- endif -%}{%- if star_empty != '#e8e8e8' -%}--sai-okclm1q7-star-empty: {{ star_empty }};{%- endif -%}{%- if bar_color != '#f5a623' -%}--sai-okclm1q7-bar-fill: {{ bar_color }};{%- endif -%}{%- if bar_bg != '#e8e8e8' -%}--sai-okclm1q7-bar-bg: {{ bar_bg }};{%- endif -%}"
+>
+  <div class="sai-okclm1q7__container">
+
+    {%- if is_minimal_empty -%}
+    {%- comment -%} ── Minimal empty state: prompt + CTA only ── {%- endcomment -%}
+    <div class="sai-okclm1q7__empty-state">
+      <p class="sai-okclm1q7__empty">{{ empty_text }}</p>
+      <a class="sai-okclm1q7__write-btn" href="{{ write_url }}" data-action="write-review">{{ write_label }}</a>
+    </div>
+    {%- else -%}
+
+    {%- comment -%} ── Heading ── {%- endcomment -%}
+    <h2 class="sai-okclm1q7__heading">{{ heading }}</h2>
+
+    {%- comment -%} ── Summary Section ── {%- endcomment -%}
+    <div class="sai-okclm1q7__summary">
+      <div class="sai-okclm1q7__summary-left">
+        <span class="sai-okclm1q7__avg-text">{{ avg_rating | round: 1 }}/5</span>
+        <div class="sai-okclm1q7__avg-stars" aria-label="{{ avg_rating | round: 1 }} out of 5 stars">
+          {%- assign avg_rounded = avg_rating | times: 2 | round | divided_by: 2.0 -%}
+          {%- for i in (1..5) -%}
+            {%- assign half_threshold = i | minus: 0.5 -%}
+            {%- if avg_rounded >= i -%}
+              <svg class="sai-okclm1q7__star sai-okclm1q7__star--full" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.27 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+            {%- elsif avg_rounded >= half_threshold -%}
+              <svg class="sai-okclm1q7__star sai-okclm1q7__star--half" width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><defs><linearGradient id="sai-okclm1q7-half-{{ i }}"><stop offset="50%" stop-color="{{ star_filled }}"/><stop offset="50%" stop-color="{{ star_empty }}"/></linearGradient></defs><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.27 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z" fill="url(#sai-okclm1q7-half-{{ i }})"/></svg>
+            {%- else -%}
+              <svg class="sai-okclm1q7__star sai-okclm1q7__star--empty" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.27 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+            {%- endif -%}
+          {%- endfor -%}
+        </div>
+        {%- if show_count -%}
+          <p class="sai-okclm1q7__based-on">Based on {{ total_count }} review{%- if total_count != 1 -%}s{%- endif -%}</p>
+        {%- endif -%}
+      </div>
+
+      {%- comment -%}
+        Histogram shows when reviews exist, or in 'full' empty mode (zeroed).
+        Not gated on `histogram` being present — an empty review_stats has no
+        ratingHistogram, but the loop defaults each row to 0, so 'full' still
+        paints the five empty bars.
+      {%- endcomment -%}
+      {%- assign render_histogram = false -%}
+      {%- if show_hist -%}
+        {%- if total_count > 0 or empty_mode == 'full' -%}
+          {%- assign render_histogram = true -%}
+        {%- endif -%}
+      {%- endif -%}
+      {%- if render_histogram -%}
+        <div class="sai-okclm1q7__histogram">
+          {%- for star in (1..5) -%}
+            {%- assign star_key = 5 | minus: star | plus: 1 | append: '' -%}
+            {%- assign star_count = histogram[star_key] | default: 0 | times: 1 -%}
+            {%- if total_count > 0 -%}
+              {%- assign bar_pct = star_count | times: 100.0 | divided_by: total_count -%}
+            {%- else -%}
+              {%- assign bar_pct = 0 -%}
+            {%- endif -%}
+            <button
+              class="sai-okclm1q7__histogram-row"
+              type="button"
+              data-rating-filter="{{ star_key }}"
+              data-count="{{ star_count }}"
+              aria-label="Filter by {{ star_key }} star reviews ({{ star_count }})"
+            >
+              <span class="sai-okclm1q7__histogram-stars" aria-hidden="true">
+                {%- for s in (1..5) -%}
+                  {%- assign sk = star_key | times: 1 -%}
+                  {%- if s <= sk -%}
+                    <svg class="sai-okclm1q7__star-sm sai-okclm1q7__star-sm--full" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.27 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+                  {%- else -%}
+                    <svg class="sai-okclm1q7__star-sm sai-okclm1q7__star-sm--empty" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.27 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+                  {%- endif -%}
+                {%- endfor -%}
+              </span>
+              <span class="sai-okclm1q7__histogram-bar">
+                <span class="sai-okclm1q7__histogram-fill" style="width: {{ bar_pct }}%"></span>
+              </span>
+              <span class="sai-okclm1q7__histogram-count">({{ star_count }})</span>
+            </button>
+          {%- endfor -%}
+        </div>
+      {%- endif -%}
+
+      <div class="sai-okclm1q7__summary-actions">
+        <a class="sai-okclm1q7__write-btn" href="{{ write_url }}" data-action="write-review">
+          {{ write_label }}
+        </a>
+      </div>
+    </div>
+
+    {%- comment -%} ── Media Gallery (aggregate from all reviews) ── {%- endcomment -%}
+    {%- if show_media -%}
+      {%- assign gallery_has_items = false -%}
+      {%- for item in gallery_raw -%}
+        {%- if item.media.url != blank -%}
+          {%- assign gallery_has_items = true -%}
+          {%- break -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- if gallery_has_items -%}
+        <div class="sai-okclm1q7__gallery" data-slot="gallery">
+          {%- assign _gal_shown = 0 -%}
+          {%- for item in gallery_raw -%}
+            {%- if _gal_shown >= gallery_limit -%}{%- break -%}{%- endif -%}
+            {%- if item.media.url != blank -%}
+              {%- assign _gal_shown = _gal_shown | plus: 1 -%}
+              {%- assign _gal_type = item.media.mediaType | default: 'image' -%}
+              {%- if _gal_type == 'video' -%}
+                <button
+                  class="sai-okclm1q7__gallery-thumb sai-okclm1q7__gallery-thumb--video"
+                  type="button"
+                  data-action="media-open"
+                  data-media-url="{{ item.media.url }}"
+                  data-media-type="video"
+                  data-review-rating="{{ item.review.rating | default: 0 }}"
+                  data-review-author="{{ item.review.authorName | default: 'Anonymous' }}"
+                  data-review-title="{{ item.review.title }}"
+                  data-review-body="{{ item.review.body }}"
+                  data-review-date="{{ item.review.reviewedAt }}"
+                  data-review-verified="{{ item.review.verificationStatus }}"
+                  aria-label="Play review video"
+                >
+                  <video src="{{ item.media.url }}" preload="metadata" muted playsinline></video>
+                  <span class="sai-okclm1q7__media-play"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>
+                </button>
+              {%- else -%}
+                <button
+                  class="sai-okclm1q7__gallery-thumb"
+                  type="button"
+                  data-action="media-open"
+                  data-media-url="{{ item.media.url }}"
+                  data-media-type="image"
+                  data-review-rating="{{ item.review.rating | default: 0 }}"
+                  data-review-author="{{ item.review.authorName | default: 'Anonymous' }}"
+                  data-review-title="{{ item.review.title }}"
+                  data-review-body="{{ item.review.body }}"
+                  data-review-date="{{ item.review.reviewedAt }}"
+                  data-review-verified="{{ item.review.verificationStatus }}"
+                  aria-label="View review photo"
+                >
+                  <img src="{{ item.media.url }}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'">
+                </button>
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+        </div>
+      {%- endif -%}
+    {%- endif -%}
+
+    {%- comment -%} ── Controls bar (count + sort). Only shown when reviews exist. ── {%- endcomment -%}
+    {%- if total_count > 0 -%}
+    <div class="sai-okclm1q7__controls">
+      <span class="sai-okclm1q7__review-count">Reviews ({{ total_count }})</span>
+      <div class="sai-okclm1q7__sort">
+        <span class="sai-okclm1q7__sort-label">Sort By</span>
+        <select class="sai-okclm1q7__sort-select" data-action="sort" aria-label="Sort reviews">
+          <option value="newest">Most Recent</option>
+          <option value="highest">Highest Rating</option>
+          <option value="lowest">Lowest Rating</option>
+          <option value="most_helpful">Most Helpful</option>
+        </select>
+      </div>
+    </div>
+    {%- endif -%}
+
+    {%- comment -%} ── Review List (SSR from metaobject references) ── {%- endcomment -%}
+    <div class="sai-okclm1q7__list" data-slot="reviews">
+      {%- if total_count == 0 -%}
+        <p class="sai-okclm1q7__empty">{{ empty_text }}</p>
+      {%- else -%}
+        {%- for review_mo in reviews_ref -%}
+          {%- if forloop.index > per_page -%}{%- break -%}{%- endif -%}
+
+          {%- assign r_rating = review_mo.rating.value | append: '' | plus: 0 | round -%}
+          {%- assign r_title = review_mo.title.value -%}
+          {%- assign r_body = review_mo.body.value -%}
+          {%- assign r_author = review_mo.author_display_name.value -%}
+          {%- assign r_date = review_mo.submitted_at.value -%}
+          {%- assign r_verify = review_mo.app_verification_status.value -%}
+          {%- assign r_reply = review_mo.merchant_reply.value -%}
+          {%- assign r_reply_date = review_mo.merchant_replied_at.value -%}
+
+          <article class="sai-okclm1q7__review" data-review-index="{{ forloop.index0 }}">
+            <div class="sai-okclm1q7__review-aside">
+              <span class="sai-okclm1q7__review-author">{{ r_author }}</span>
+              {%- if show_badge and r_verify == 'verified_buyer' -%}
+                <span class="sai-okclm1q7__badge sai-okclm1q7__badge--verified" aria-label="Verified buyer">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> Verified
+                </span>
+              {%- endif -%}
+              {%- if r_date -%}
+                <time class="sai-okclm1q7__review-date" datetime="{{ r_date }}">
+                  {{ r_date | date: '%m/%d/%Y' }}
+                </time>
+              {%- endif -%}
+            </div>
+
+            <div class="sai-okclm1q7__review-main">
+              <div class="sai-okclm1q7__review-stars" aria-label="{{ r_rating }} out of 5 stars">
+                {%- for s in (1..5) -%}
+                  {%- if s <= r_rating -%}
+                    <svg class="sai-okclm1q7__star-sm sai-okclm1q7__star-sm--full" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.27 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+                  {%- else -%}
+                    <svg class="sai-okclm1q7__star-sm sai-okclm1q7__star-sm--empty" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.27 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2z"/></svg>
+                  {%- endif -%}
+                {%- endfor -%}
+              </div>
+
+              {%- if r_title != blank -%}
+                <h3 class="sai-okclm1q7__review-title">{{ r_title }}</h3>
+              {%- endif -%}
+
+              {%- if r_body != blank -%}
+                <div class="sai-okclm1q7__review-body">{{ r_body }}</div>
+              {%- endif -%}
+
+              {%- if show_media -%}
+                {%- assign r_media_raw = review_mo.media_urls.value -%}
+                {%- if r_media_raw != blank and r_media_raw.size > 0 -%}
+                  <div class="sai-okclm1q7__media">
+                    {%- for media_url in r_media_raw -%}
+                      {%- assign _murl_lower = media_url | downcase -%}
+                      {%- assign _is_video = false -%}
+                      {%- if _murl_lower contains '.mp4' or _murl_lower contains '.webm' or _murl_lower contains '.mov' or _murl_lower contains '.ogg' -%}
+                        {%- assign _is_video = true -%}
+                      {%- endif -%}
+                      {%- if _is_video -%}
+                        <button
+                          class="sai-okclm1q7__media-thumb sai-okclm1q7__media-thumb--video"
+                          type="button"
+                          data-action="media-open"
+                          data-media-url="{{ media_url }}"
+                          data-media-type="video"
+                          data-review-rating="{{ r_rating }}"
+                          data-review-author="{{ r_author }}"
+                          data-review-title="{{ r_title }}"
+                          data-review-body="{{ r_body }}"
+                          data-review-date="{{ r_date }}"
+                          data-review-verified="{{ r_verify }}"
+                          aria-label="Play video"
+                        >
+                          <video src="{{ media_url }}" preload="metadata" muted playsinline></video>
+                          <span class="sai-okclm1q7__media-play"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></span>
+                        </button>
+                      {%- else -%}
+                        <button
+                          class="sai-okclm1q7__media-thumb"
+                          type="button"
+                          data-action="media-open"
+                          data-media-url="{{ media_url }}"
+                          data-media-type="image"
+                          data-review-rating="{{ r_rating }}"
+                          data-review-author="{{ r_author }}"
+                          data-review-title="{{ r_title }}"
+                          data-review-body="{{ r_body }}"
+                          data-review-date="{{ r_date }}"
+                          data-review-verified="{{ r_verify }}"
+                          aria-label="View image"
+                        >
+                          <img src="{{ media_url }}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'">
+                        </button>
+                      {%- endif -%}
+                    {%- endfor -%}
+                  </div>
+                {%- endif -%}
+              {%- endif -%}
+
+              {%- assign r_handle = review_mo.system.handle -%}
+              {%- if show_voting and r_handle != blank and customer -%}
+              <div class="sai-okclm1q7__votes">
+                <span class="sai-okclm1q7__votes-label">Helpful?</span>
+                <button class="sai-okclm1q7__vote-btn" type="button" data-action="vote" data-vote-type="helpful" data-review-id="{{ r_handle }}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z"/><path d="M7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/></svg><span class="sai-okclm1q7__vote-divider">|</span><span class="sai-okclm1q7__vote-count">0</span>
+                </button>
+                <button class="sai-okclm1q7__vote-btn" type="button" data-action="vote" data-vote-type="not_helpful" data-review-id="{{ r_handle }}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17"/></svg><span class="sai-okclm1q7__vote-divider">|</span><span class="sai-okclm1q7__vote-count">0</span>
+                </button>
+              </div>
+              {%- endif -%}
+
+              {%- if r_reply != blank -%}
+                <div class="sai-okclm1q7__reply">
+                  <span class="sai-okclm1q7__reply-label">{{ reply_label }}</span>
+                  {%- if r_reply_date -%}
+                    <time class="sai-okclm1q7__reply-date" datetime="{{ r_reply_date }}">{{ r_reply_date | date: '%m/%d/%Y' }}</time>
+                  {%- endif -%}
+                  <div class="sai-okclm1q7__reply-body">{{ r_reply }}</div>
+                </div>
+              {%- endif -%}
+            </div>
+          </article>
+        {%- endfor -%}
+      {%- endif -%}
+    </div>
+
+    {%- comment -%} ── Pagination (JS-driven, hidden on SSR if only 1 page) ── {%- endcomment -%}
+    {%- assign total_pages = total_count | divided_by: per_page -%}
+    {%- assign remainder = total_count | modulo: per_page -%}
+    {%- if remainder > 0 -%}{%- assign total_pages = total_pages | plus: 1 -%}{%- endif -%}
+
+    {%- comment -%} ── Numbered pagination ── {%- endcomment -%}
+    <nav class="sai-okclm1q7__pagination sai-okclm1q7__pagination--numbered" data-slot="pagination" aria-label="Review pages"
+      {%- if total_pages <= 1 or pag_type != 'numbered' %} hidden{%- endif -%}
+    >
+      <button class="sai-okclm1q7__page-btn" type="button" data-action="prev-page" disabled aria-label="Previous page">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M10 3L5 8L10 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <span class="sai-okclm1q7__page-info" data-slot="page-info">Page 1 of {{ total_pages }}</span>
+      <button class="sai-okclm1q7__page-btn" type="button" data-action="next-page" aria-label="Next page"
+        {%- if total_pages <= 1 %} disabled{%- endif -%}
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3L11 8L6 13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </nav>
+
+    {%- comment -%} ── Load more button ── {%- endcomment -%}
+    <div class="sai-okclm1q7__load-more" data-slot="load-more"
+      {%- if total_pages <= 1 or pag_type != 'load_more' %} hidden{%- endif -%}
+    >
+      <button class="sai-okclm1q7__load-more-btn" type="button" data-action="load-more">Load More Reviews</button>
+    </div>
+
+    {%- endif -%}
+  </div>
+</sai-okclm1q7>
+
+{%- comment -%}
+  Seed data for JS hydration — stats and config in a single JSON blob so
+  JS can render page 2+ without a redundant stats fetch.
+{%- endcomment -%}
+<script type="application/json" data-sai-okclm1q7-seed>
+{
+  "stats": {
+    "averageRating": {{ avg_rating | json }},
+    "totalCount": {{ total_count | json }},
+    "histogram": {
+      "1": {{ histogram['1'] | default: 0 | json }},
+      "2": {{ histogram['2'] | default: 0 | json }},
+      "3": {{ histogram['3'] | default: 0 | json }},
+      "4": {{ histogram['4'] | default: 0 | json }},
+      "5": {{ histogram['5'] | default: 0 | json }}
+    }
+  },
+  {%- if config_raw -%}
+  "config": {
+    "defaultStorefrontSort": {{ config_raw.defaultStorefrontSort | default: 'newest' | json }}
+  },
+  {%- else -%}
+  "config": {
+    "defaultStorefrontSort": "newest"
+  },
+  {%- endif -%}
+  "perPage": {{ per_page | json }}
+}
+</script>
