@@ -347,6 +347,10 @@
     "sai_section_jhnbdzye": {
       "type": "sai-section-jhnbdzye",
       "settings": {}
+    },
+    "sai_section_nm4qci8m": {
+      "type": "sai-section-nm4qci8m",
+      "settings": {}
     }
   },
   "order": [
@@ -354,6 +358,7 @@
     "sai_section_fgiatr7w",
     "sai_section_vuu0xl1v",
     "sai_section_jhnbdzye",
+    "sai_section_nm4qci8m",
     "sai_section_a5nm3mm3",
     "sai_section_m8lz5n26"
   ]
