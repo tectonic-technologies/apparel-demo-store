@@ -705,14 +705,29 @@ sai-ty137c1l[data-spotlight-aspect="auto"] .sai-ty137c1l__spotlight-media {
 
 /* ── Carousel dots ── */
 
+/* One dot per image, so a product with many images produces a long row.
+   Cap the strip at a compact centred band and scroll internally rather than
+   letting the dots span the full width / spill past the viewport. `safe
+   center` keeps the row centred while it fits and falls back to start-aligned
+   once it overflows, so no leading dots become unreachable. */
 .sai-ty137c1l__dots {
   display: flex;
-  justify-content: center;
+  justify-content: safe center;
   gap: var(--sai-size-2);
   padding: var(--sai-size-3) 0;
+  max-width: min(100%, 200px);
+  margin: 0 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.sai-ty137c1l__dots::-webkit-scrollbar {
+  display: none;
 }
 
 .sai-ty137c1l__dot {
+  flex: 0 0 auto;
   width: 8px;
   height: 8px;
   border-radius: 50%;
