@@ -133,12 +133,13 @@
     }
     {%- endcapture -%}
 
+    {%- assign sai_section_width = sai_default.content.section_width -%}
     <style data-spectrum-style="cyaine5q9ypwh6uuwr17rojf">
     {%- for sai_v in sai_mo.variants.value.variants -%}
       {%- if sai_v.css != blank -%}{{ sai_v.css }}{%- endif -%}
     {%- endfor -%}
     </style>
-    <div data-spectrum-instance-id="cyaine5q9ypwh6uuwr17rojf" data-spectrum-snippet-id="eujkvafn" data-spectrum-variant-id="{{ sai_default.variantId }}" data-spectrum-vis="{{ sai_vis }}" data-spectrum-resource-id="{{ sai_resource.id }}" data-spectrum-lq-snippet="mut-cyaine5q9ypwh6uuwr17rojf" data-spectrum-experience="_system-178463768769" data-spectrum-feature-slug="recommendations_fbt">
+    <div data-spectrum-instance-id="cyaine5q9ypwh6uuwr17rojf" data-spectrum-snippet-id="eujkvafn" data-spectrum-variant-id="{{ sai_default.variantId }}" data-spectrum-vis="{{ sai_vis }}" data-spectrum-section-width="{{ sai_section_width }}" data-spectrum-resource-id="{{ sai_resource.id }}" data-spectrum-lq-snippet="mut-cyaine5q9ypwh6uuwr17rojf" data-spectrum-experience="_system-178463768769" data-spectrum-feature-slug="recommendations_fbt">
       <script type="application/json" data-spectrum-envelope>{{ sai_envelope | replace: '</script>', '<\/script>' }}</script>
       {% render '_sai-snippet-eujkvafn', variant: sai_default, slot: sai_default_slot, slot_payload: sai_default_payload, entry: sai_default_entry, mo: sai_mo, mutation_handle: 'mut-cyaine5q9ypwh6uuwr17rojf', experience_handle: '_system-178463768769' %}
     </div>
